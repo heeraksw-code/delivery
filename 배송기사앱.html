@@ -129,6 +129,17 @@ label{font-size:12px;color:#666;display:block;margin-bottom:3px}
         <button class="btn btn-orange btn-sm" onclick="optimizeRoute()">⚡ 경로 최적화</button>
         <button class="btn btn-gray btn-sm" onclick="toggleGps()">📍 GPS <span id="gpsToggleLabel">켜기</span></button>
       </div>
+      <div class="row">
+        <button class="btn btn-sm" style="background:#16a085;color:#fff" onclick="toggleMap()">🗺️ <span id="mapToggleLabel">지도 보기</span></button>
+      </div>
+    </div>
+
+    <!-- 경로 지도 (개요용) -->
+    <div id="mapPanel" style="display:none;margin-bottom:12px;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+      <div id="driverMap" style="width:100%;height:320px;background:#e8ecf0"></div>
+      <div id="mapHint" style="display:none;padding:16px;background:#fff3cd;color:#856404;font-size:13px;text-align:center;line-height:1.6">
+        지도를 보려면 ⚙️ 설정에서<br><b>카카오 JavaScript 키</b>를 입력하세요.
+      </div>
     </div>
 
     <div id="bannerArea"></div>
@@ -155,8 +166,11 @@ label{font-size:12px;color:#666;display:block;margin-bottom:3px}
     <input type="time" id="cfg_wh_close" value="11:20">
     <small style="color:#888;font-size:11px;display:block;margin:-4px 0 8px">이 시각 이후 ~ 13:00 사이 도착은 점심시간 겹침 경고</small>
 
-    <label>카카오맵 API 키 (선택, 경로 자동최적화용)</label>
-    <input type="text" id="cfg_kakao_key" placeholder="REST API 키 입력 (없으면 수동 순서 사용)">
+    <label>카카오맵 REST API 키 (주소→좌표 변환용)</label>
+    <input type="text" id="cfg_kakao_key" placeholder="REST API 키 입력">
+
+    <label>카카오맵 JavaScript 키 (지도 표시용)</label>
+    <input type="text" id="cfg_kakao_js_key" placeholder="JavaScript 키 입력 (지도 보려면 필요)">
 
     <label>기사 목록 (줄바꿈으로 구분)</label>
     <textarea id="cfg_drivers" rows="4" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:8px" placeholder="홍길동&#10;김배달&#10;이드라이버"></textarea>
@@ -610,12 +624,113 @@ function renderStops() {
 
   list.innerHTML = html;
   updateProgress();
+  // 지도가 열려 있으면 핀·경로도 갱신
+  if (document.getElementById('mapPanel').style.display !== 'none' && DMAP) renderDriverMap();
 }
 
 function updateProgress() {
   const total = STOPS.length;
   const done = STOPS.filter(s => s.done).length;
   document.getElementById('progressText').textContent = `${done}/${total} 완료`;
+}
+
+// ═══ 경로 지도 (개요용) ═══════════════════════════════
+let DMAP = null, DMARKERS = [], DLINE = null, DGPS = null;
+
+function toggleMap() {
+  const panel = document.getElementById('mapPanel');
+  const showing = panel.style.display !== 'none';
+  if (showing) {
+    panel.style.display = 'none';
+    document.getElementById('mapToggleLabel').textContent = '지도 보기';
+    return;
+  }
+  panel.style.display = 'block';
+  document.getElementById('mapToggleLabel').textContent = '지도 닫기';
+  ensureDriverMap();
+}
+
+function ensureDriverMap() {
+  const jsKey = cfg('kakao_js_key', '');
+  const mapEl = document.getElementById('driverMap');
+  const hintEl = document.getElementById('mapHint');
+  if (!jsKey) { mapEl.style.display = 'none'; hintEl.style.display = 'block'; return; }
+  mapEl.style.display = 'block'; hintEl.style.display = 'none';
+
+  if (DMAP) { setTimeout(() => { DMAP.relayout(); renderDriverMap(); }, 100); return; }
+
+  if (typeof kakao === 'undefined' || !kakao.maps || !kakao.maps.Map) {
+    // SDK 로드 (한 번만)
+    if (!document.getElementById('kakaoSdkDriver')) {
+      const s = document.createElement('script');
+      s.id = 'kakaoSdkDriver';
+      s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${jsKey}&autoload=false`;
+      s.onload = () => kakao.maps.load(() => { initDriverMap(); renderDriverMap(); });
+      document.head.appendChild(s);
+    }
+    return;
+  }
+  initDriverMap();
+  renderDriverMap();
+}
+
+function initDriverMap() {
+  if (DMAP) return;
+  DMAP = new kakao.maps.Map(document.getElementById('driverMap'), {
+    center: new kakao.maps.LatLng(37.41, 127.13),
+    level: 7
+  });
+}
+
+function renderDriverMap() {
+  if (!DMAP || typeof kakao === 'undefined') return;
+  // 기존 마커·선 제거
+  DMARKERS.forEach(m => m.setMap(null)); DMARKERS = [];
+  if (DLINE) { DLINE.setMap(null); DLINE = null; }
+
+  const bounds = new kakao.maps.LatLngBounds();
+  const linePath = [];
+  let num = 0;
+  let hasAny = false;
+
+  STOPS.forEach(s => {
+    if (!s.lat || !s.lng) return;
+    hasAny = true;
+    const pos = new kakao.maps.LatLng(s.lat, s.lng);
+    bounds.extend(pos);
+    let label, color;
+    if (s.warehouseHere) { label = '🏭'; color = '#e67e22'; }
+    else if (s.done)     { label = '✓'; color = '#aaa'; }
+    else { num++; label = String(num); color = '#1a3a5c'; linePath.push(pos); }
+    const content = `<div title="${esc(s.clientName)}" style="background:${color};color:#fff;min-width:24px;height:24px;padding:0 4px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)">${label}</div>`;
+    const ov = new kakao.maps.CustomOverlay({ position: pos, content, yAnchor: 0.5, xAnchor: 0.5 });
+    ov.setMap(DMAP);
+    DMARKERS.push(ov);
+  });
+
+  // 미완료 거래처를 순서대로 잇는 경로선
+  if (linePath.length >= 2) {
+    DLINE = new kakao.maps.Polyline({ path: linePath, strokeWeight: 4, strokeColor: '#1a3a5c', strokeOpacity: 0.7, strokeStyle: 'solid' });
+    DLINE.setMap(DMAP);
+  }
+
+  updateGpsDot(bounds);
+  if (hasAny && !bounds.isEmpty()) DMAP.setBounds(bounds);
+}
+
+// 내 현재 위치(파란 점) — GPS 갱신 때마다 가볍게 이동
+function updateGpsDot(boundsToExtend) {
+  if (!DMAP || typeof kakao === 'undefined' || !CUR_LAT || !CUR_LNG) return;
+  const gpos = new kakao.maps.LatLng(CUR_LAT, CUR_LNG);
+  if (DGPS) { DGPS.setPosition(gpos); }
+  else {
+    DGPS = new kakao.maps.CustomOverlay({
+      position: gpos, yAnchor: 0.5, xAnchor: 0.5,
+      content: '<div style="width:16px;height:16px;border-radius:50%;background:#2d8cff;border:3px solid #fff;box-shadow:0 0 0 3px rgba(45,140,255,.35)"></div>'
+    });
+    DGPS.setMap(DMAP);
+  }
+  if (boundsToExtend) boundsToExtend.extend(gpos);
 }
 
 // ═══ GPS 추적 ═══════════════════════════════════════
@@ -640,6 +755,7 @@ function startGps() {
       CUR_LAT = pos.coords.latitude;
       CUR_LNG = pos.coords.longitude;
       document.getElementById('gpsStatus').textContent = `GPS ${CUR_LAT.toFixed(4)}, ${CUR_LNG.toFixed(4)}`;
+      updateGpsDot();  // 지도 위 내 위치 점 이동
     },
     err => { document.getElementById('gpsStatus').textContent = 'GPS 오류: ' + err.message; },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
@@ -687,6 +803,7 @@ function openSettings() {
   document.getElementById('cfg_wh_addr').value = cfg('wh_addr', '');
   document.getElementById('cfg_wh_close').value = cfg('wh_close', '11:20');
   document.getElementById('cfg_kakao_key').value = cfg('kakao_key', '');
+  document.getElementById('cfg_kakao_js_key').value = cfg('kakao_js_key', '');
   document.getElementById('cfg_drivers').value = cfg('drivers', '홍길동\n김드라이버');
   document.getElementById('settingsModal').classList.add('open');
 }
@@ -699,9 +816,12 @@ function saveSettings() {
   cfgSet('wh_addr',    document.getElementById('cfg_wh_addr').value.trim());
   cfgSet('wh_close',   document.getElementById('cfg_wh_close').value);
   cfgSet('kakao_key',  document.getElementById('cfg_kakao_key').value.trim());
+  cfgSet('kakao_js_key', document.getElementById('cfg_kakao_js_key').value.trim());
   cfgSet('drivers',    document.getElementById('cfg_drivers').value.trim());
   closeSettings();
   showBanner('설정 저장됨', 'ok');
+  // 지도 패널이 열려 있으면 새 키로 다시 시도
+  if (document.getElementById('mapPanel').style.display !== 'none') ensureDriverMap();
 }
 
 // ═══ 초기화 ══════════════════════════════════════════

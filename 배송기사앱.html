@@ -375,12 +375,14 @@ async function optimizeRoute() {
   const pendingStops = STOPS.filter(s => !s.done && !s.warehouseHere);
   const warehouse = STOPS.find(s => s.warehouseHere);
 
-  // 좌표 없는 거래처 수
-  const noCoord = pendingStops.filter(s => !s.lat || !s.lng).length;
-
-  if (noCoord > 0 && kakaoKey) {
-    showBanner('주소를 좌표로 변환 중...', 'ok');
-    await geocodeAll(pendingStops, kakaoKey);
+  // 좌표 없는 곳 변환 (거래처 + 창고)
+  if (kakaoKey) {
+    const toGeo = [...pendingStops];
+    if (warehouse && (!warehouse.lat || !warehouse.lng) && warehouse.address && warehouse.address !== '주소 미등록') toGeo.push(warehouse);
+    if (toGeo.some(s => !s.lat || !s.lng)) {
+      showBanner('주소를 좌표로 변환 중...', 'ok');
+      await geocodeAll(toGeo, kakaoKey);
+    }
   }
 
   const withCoord = pendingStops.filter(s => s.lat && s.lng);
@@ -404,18 +406,83 @@ async function optimizeRoute() {
     STOPS = reordered;
   }
 
-  // 창고 점심시간(11:20~13:00) 경고
+  renderStops();
+
+  // 실제 도로 경로 + 도착예정시간 계산 (카카오 길찾기 API)
+  showBanner('실제 도로 경로·도착시간 계산 중...', 'ok');
+  await applyRoadRouteAndETA(depot);
+  renderStops();
+  if (document.getElementById('mapPanel').style.display !== 'none' && DMAP) renderDriverMap();
+
+  // 결과 안내
+  const depotSrc = (CUR_LAT && CUR_LNG) ? '현재 위치' : (cfg('depot_addr','') ? '회사 출발지' : '거래처 중심');
+  let msg = `✅ 경로 완료 — ${depotSrc} 기준 ${withCoord.length}곳`;
+  if (noCoordList.length > 0) msg += ` (${noCoordList.length}곳 좌표없어 뒤에)`;
+  const lastEta = [...STOPS].reverse().find(s => s.eta);
+  if (lastEta) msg += ` · 마지막 도착 ${fmtTime(lastEta.eta)} 예상`;
+  showBanner(msg, 'ok');
+
+  // 창고 점심시간 경고 (정확한 도착예정시간 기준)
   const whClose = cfg('wh_close', '11:20');
   const [h, m] = whClose.split(':').map(Number);
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  if (warehouse && nowMin >= (h*60+m) && nowMin < 13*60) {
-    showBanner(`⚠️ 지금은 창고 점심시간(${whClose}~13:00). 창고는 13:00 이후 방문하세요. 경로는 정리됐습니다.`, 'warn');
-  } else {
-    const depotSrc = (CUR_LAT && CUR_LNG) ? '현재 위치' : (cfg('depot_addr','') ? '회사 출발지' : '거래처 중심');
-    showBanner(`✅ 경로 최적화 완료 — ${depotSrc} 기준 ${withCoord.length}곳 가까운 순 정렬${noCoordList.length>0?' ('+noCoordList.length+'곳 좌표없어 뒤에)':''}`, 'ok');
+  if (warehouse && warehouse.eta) {
+    const wm = warehouse.eta.getHours() * 60 + warehouse.eta.getMinutes();
+    if (wm >= (h*60+m) && wm < 13*60) {
+      showBanner(`⚠️ 창고 도착 예상 ${fmtTime(warehouse.eta)} — 점심시간(${whClose}~13:00)과 겹칩니다. 13:00 이후 방문하거나 순서를 조정하세요.`, 'warn');
+    }
   }
+}
 
-  renderStops();
+function fmtTime(d) { return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'); }
+
+// ═══ 실제 도로 경로 + 도착예정시간 ═══════════════════
+let ROAD_PATH = null;          // 카카오 길찾기로 받은 실제 도로 좌표
+const SERVICE_MIN = 5;         // 거래처당 하차·납품 소요(분) — 도착시간에 반영
+
+async function applyRoadRouteAndETA(depot) {
+  ROAD_PATH = null;
+  STOPS.forEach(s => { s.eta = null; });
+
+  // 순서대로, 좌표 있고 미완료인 정류장 (창고 포함)
+  const route = STOPS.filter(s => s.lat && s.lng && !s.done);
+  if (route.length < 1 || route.length > 30) return;   // 30 초과면 직선 유지(카카오 한도)
+
+  const kakaoKey = cfg('kakao_key', '');
+  if (!kakaoKey) return;
+
+  const origin = { x: depot.lng, y: depot.lat };
+  const destination = { x: route[route.length-1].lng, y: route[route.length-1].lat };
+  const waypoints = route.slice(0, -1).map(s => ({ x: s.lng, y: s.lat }));
+
+  try {
+    const res = await fetch('https://apis-navi.kakaomobility.com/v1/waypoints/directions', {
+      method: 'POST',
+      headers: { 'Authorization': 'KakaoAK ' + kakaoKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin, destination, waypoints, priority: 'RECOMMEND' })
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const r = data.routes && data.routes[0];
+    if (!r || r.result_code !== 0) return;
+
+    // 1) 실제 도로 좌표 모으기 (vertexes: [x,y,x,y,...])
+    const path = [];
+    (r.sections || []).forEach(sec => {
+      (sec.roads || []).forEach(rd => {
+        const v = rd.vertexes || [];
+        for (let i = 0; i + 1 < v.length; i += 2) path.push({ lat: v[i+1], lng: v[i] });
+      });
+    });
+    if (path.length >= 2) ROAD_PATH = path;
+
+    // 2) 구간 소요시간 → 누적 도착예정시간 (운전시간 + 앞 정류장 하차시간)
+    const now = Date.now();
+    let cum = 0;
+    (r.sections || []).forEach((sec, i) => {
+      cum += (sec.duration || 0);
+      if (route[i]) route[i].eta = new Date(now + (cum + i * SERVICE_MIN * 60) * 1000);
+    });
+  } catch (e) { /* 실패 시 직선·시간없음으로 폴백 */ }
 }
 
 // 출발지(시작점) 좌표 결정 — 가까운 순서의 기준점
@@ -600,10 +667,16 @@ function renderStops() {
     const isWH = stop.warehouseHere;
     html += `<div class="stop-card ${stop.done?'done':''} ${isWH?'warehouse-card':''}">`;
     if (stop.done) html += `<div class="done-badge">납품완료</div>`;
+    const etaTag = (!stop.done && stop.eta)
+      ? `<span style="background:#eaf2ff;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:10px;white-space:nowrap">🕐 ${fmtTime(stop.eta)} 도착예정</span>`
+      : '';
     html += `<div class="stop-header">
       <div class="stop-num">${displayNum}</div>
-      <div>
-        <div class="stop-name">${isWH?'🏭 ':''} ${esc(stop.clientName)}</div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <div class="stop-name">${isWH?'🏭 ':''} ${esc(stop.clientName)}</div>
+          ${etaTag}
+        </div>
         <div class="stop-addr">📍 ${esc(stop.address)}</div>
       </div>
     </div>`;
@@ -708,9 +781,15 @@ function renderDriverMap() {
     DMARKERS.push(ov);
   });
 
-  // 미완료 거래처를 순서대로 잇는 경로선
-  if (linePath.length >= 2) {
-    DLINE = new kakao.maps.Polyline({ path: linePath, strokeWeight: 4, strokeColor: '#1a3a5c', strokeOpacity: 0.7, strokeStyle: 'solid' });
+  // 경로선: 실제 도로(ROAD_PATH) 우선, 없으면 직선
+  let lineCoords = null;
+  if (ROAD_PATH && ROAD_PATH.length >= 2) {
+    lineCoords = ROAD_PATH.map(p => new kakao.maps.LatLng(p.lat, p.lng));
+  } else if (linePath.length >= 2) {
+    lineCoords = linePath;
+  }
+  if (lineCoords) {
+    DLINE = new kakao.maps.Polyline({ path: lineCoords, strokeWeight: 5, strokeColor: '#2d8cff', strokeOpacity: 0.85, strokeStyle: 'solid' });
     DLINE.setMap(DMAP);
   }
 

@@ -377,44 +377,63 @@ async function optimizeRoute() {
     return;
   }
 
-  // TSP 최적화 (좌표 있는 것만)
-  const depot = getDepotCoords();
-  const optimized = nearestNeighborTSP(withCoord, depot);
+  // TSP 최적화 (좌표 있는 것만): 출발지 기준 최근접이웃 → 2-opt로 갈지자 펴기
+  const depot = await resolveDepot(kakaoKey, withCoord);
+  let optimized = nearestNeighborTSP(withCoord, depot);
+  optimized = twoOpt(optimized, depot);
 
-  // 창고 배치: 모든 배송 완료 예상 시간 확인
-  const whName = cfg('wh_name', '');
-  const whClose = cfg('wh_close', '11:20');
-  const [h, m] = whClose.split(':').map(Number);
-  const closeMin = h * 60 + m;
-  const reOpenMin = 13 * 60;
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-
-  // 창고를 마지막에 배치 (기본)
+  // 좌표 없는 거래처는 맨 뒤로, 창고는 항상 마지막에 배치
   const reordered = [...optimized, ...noCoordList];
   if (warehouse) {
-    // 현재 시각 기준: 지금 창고 가면 점심 걸리나?
-    if (nowMin >= closeMin && nowMin < reOpenMin) {
-      // 점심시간 중 → 창고는 무조건 마지막
-      STOPS = [...reordered.filter(s => !s.warehouseHere), warehouse];
-    } else if (nowMin < closeMin) {
-      // 오전 → 창고 오전에 갈 수 있으면 마지막, 못 가면 첫번째
-      STOPS = [...reordered.filter(s => !s.warehouseHere), warehouse];
-    } else {
-      // 13:00 이후 → 창고 마지막 OK
-      STOPS = [...reordered.filter(s => !s.warehouseHere), warehouse];
-    }
+    STOPS = [...reordered, warehouse];
   } else {
     STOPS = reordered;
   }
 
+  // 창고 점심시간(11:20~13:00) 경고
+  const whClose = cfg('wh_close', '11:20');
+  const [h, m] = whClose.split(':').map(Number);
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  if (warehouse && nowMin >= (h*60+m) && nowMin < 13*60) {
+    showBanner(`⚠️ 지금은 창고 점심시간(${whClose}~13:00). 창고는 13:00 이후 방문하세요. 경로는 정리됐습니다.`, 'warn');
+  } else {
+    const depotSrc = (CUR_LAT && CUR_LNG) ? '현재 위치' : (cfg('depot_addr','') ? '회사 출발지' : '거래처 중심');
+    showBanner(`✅ 경로 최적화 완료 — ${depotSrc} 기준 ${withCoord.length}곳 가까운 순 정렬${noCoordList.length>0?' ('+noCoordList.length+'곳 좌표없어 뒤에)':''}`, 'ok');
+  }
+
   renderStops();
-  showBanner(`✅ 경로 최적화 완료 — ${withCoord.length}곳 자동 정렬${noCoordList.length>0?' ('+noCoordList.length+'곳 좌표없어 뒤에 추가)':''}`, 'ok');
 }
 
-// 출발지 좌표
-function getDepotCoords() {
-  // 설정에 좌표 없으면 대략적인 기본값 (한국 중심)
-  return { lat: 37.00, lng: 127.28 };
+// 출발지(시작점) 좌표 결정 — 가까운 순서의 기준점
+//  우선순위: ① GPS 현재 위치(지금 있는 곳 기준) ② 설정의 회사 주소 ③ 거래처들의 중심점
+async function resolveDepot(kakaoKey, stops) {
+  // ① GPS가 켜져 있으면 현재 위치를 출발지로 (지금 있는 곳에서 가까운 순으로 정렬됨)
+  if (CUR_LAT && CUR_LNG) return { lat: CUR_LAT, lng: CUR_LNG };
+
+  // ② 설정에 입력한 회사(출발지) 주소 — 한 번 변환해서 캐시
+  const cLat = parseFloat(cfg('depot_lat', '')), cLng = parseFloat(cfg('depot_lng', ''));
+  if (!isNaN(cLat) && !isNaN(cLng)) return { lat: cLat, lng: cLng };
+  const depotAddr = cfg('depot_addr', '');
+  if (depotAddr && kakaoKey) {
+    try {
+      const res = await fetch(
+        `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(depotAddr)}`,
+        { headers: { Authorization: 'KakaoAK ' + kakaoKey } }
+      );
+      const data = await res.json();
+      if (data.documents && data.documents.length > 0) {
+        const lat = parseFloat(data.documents[0].y), lng = parseFloat(data.documents[0].x);
+        cfgSet('depot_lat', lat); cfgSet('depot_lng', lng);
+        return { lat, lng };
+      }
+    } catch (e) {}
+  }
+
+  // ③ 최후 폴백: 거래처 좌표들의 평균(중심점) — 엉뚱한 곳에서 시작하지 않도록
+  const valid = stops.filter(s => s.lat && s.lng);
+  const lat = valid.reduce((a, s) => a + s.lat, 0) / valid.length;
+  const lng = valid.reduce((a, s) => a + s.lng, 0) / valid.length;
+  return { lat, lng };
 }
 
 // 카카오 주소→좌표 변환
@@ -466,6 +485,38 @@ function nearestNeighborTSP(stops, depot) {
     unvisited.splice(best, 1);
   }
   return route;
+}
+
+// 경로 전체 거리 (출발지 → 첫 거래처 → ... → 마지막, 돌아오지 않는 열린 경로)
+function routeDistance(route, depot) {
+  if (route.length === 0) return 0;
+  let total = haversine(depot.lat, depot.lng, route[0].lat, route[0].lng);
+  for (let i = 0; i < route.length - 1; i++) {
+    total += haversine(route[i].lat, route[i].lng, route[i+1].lat, route[i+1].lng);
+  }
+  return total;
+}
+
+// 2-opt 개선 — 최근접이웃이 만든 갈지자/교차 구간을 뒤집어가며 총거리를 줄임
+function twoOpt(route, depot) {
+  if (route.length < 4) return route;
+  let best = route.slice();
+  let bestDist = routeDistance(best, depot);
+  let improved = true;
+  let guard = 0; // 안전장치 (무한루프 방지)
+  while (improved && guard++ < 50) {
+    improved = false;
+    for (let i = 0; i < best.length - 1; i++) {
+      for (let k = i + 1; k < best.length; k++) {
+        const cand = best.slice(0, i).concat(best.slice(i, k + 1).reverse(), best.slice(k + 1));
+        const d = routeDistance(cand, depot);
+        if (d < bestDist - 1e-9) {
+          best = cand; bestDist = d; improved = true;
+        }
+      }
+    }
+  }
+  return best;
 }
 
 // ═══ 네비게이션 연동 ════════════════════════════════
@@ -641,7 +692,9 @@ function openSettings() {
 }
 function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
 function saveSettings() {
-  cfgSet('depot_addr', document.getElementById('cfg_depot').value.trim());
+  const newDepot = document.getElementById('cfg_depot').value.trim();
+  if (newDepot !== cfg('depot_addr', '')) { cfgSet('depot_lat', ''); cfgSet('depot_lng', ''); } // 주소 바뀌면 좌표 캐시 초기화
+  cfgSet('depot_addr', newDepot);
   cfgSet('wh_name',    document.getElementById('cfg_wh_name').value.trim());
   cfgSet('wh_addr',    document.getElementById('cfg_wh_addr').value.trim());
   cfgSet('wh_close',   document.getElementById('cfg_wh_close').value);

@@ -131,6 +131,7 @@ label{font-size:12px;color:#666;display:block;margin-bottom:3px}
       </div>
       <div class="row">
         <button class="btn btn-sm" style="background:#16a085;color:#fff" onclick="toggleMap()">🗺️ <span id="mapToggleLabel">지도 보기</span></button>
+        <button class="btn btn-sm" style="background:#3b5b86;color:#fff" onclick="batchNavi()">🧭 묶음 내비</button>
       </div>
     </div>
 
@@ -166,6 +167,11 @@ label{font-size:12px;color:#666;display:block;margin-bottom:3px}
     <input type="time" id="cfg_wh_close" value="11:20">
     <small style="color:#888;font-size:11px;display:block;margin:-4px 0 8px">이 시각 이후 ~ 13:00 사이 도착은 점심시간 겹침 경고</small>
 
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+      <input type="checkbox" id="cfg_auto_done" style="width:18px;height:18px"> 자동 납품완료 (거래처 도착 시 자동 처리)
+    </label>
+    <small style="color:#888;font-size:11px;display:block;margin:-4px 0 8px">GPS가 켜져 있어야 작동 · 거래처 120m 안에 멈추면 자동 완료</small>
+
     <label>카카오맵 REST API 키 (주소→좌표 변환용)</label>
     <input type="text" id="cfg_kakao_key" placeholder="REST API 키 입력">
 
@@ -181,6 +187,7 @@ label{font-size:12px;color:#666;display:block;margin-bottom:3px}
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js"></script>
 <script>
 // ═══ Supabase 연결 ═══════════════════════════════
 const SUPABASE_URL  = 'https://bjerikppbvbjlwptzfkn.supabase.co';
@@ -629,8 +636,33 @@ function openTmap(lat, lng, name) {
   }, 1500);
 }
 
+// ═══ 묶음 내비 — 다음 최대 4곳(경유 3 + 도착 1)을 카카오내비에 한 번에 ═══
+function batchNavi() {
+  const jsKey = cfg('kakao_js_key', '');
+  if (!jsKey) { showBanner('⚙️ 설정에서 카카오 JavaScript 키를 먼저 입력하세요', 'warn'); return; }
+  if (typeof Kakao === 'undefined') { showBanner('카카오 SDK 로딩 중 — 잠시 후 다시 눌러주세요', 'warn'); return; }
+  if (!Kakao.isInitialized()) { try { Kakao.init(jsKey); } catch(e) {} }
+
+  const pending = STOPS.filter(s => s.lat && s.lng && !s.done);
+  if (pending.length === 0) { showBanner('안내할 남은 거래처가 없습니다', 'warn'); return; }
+
+  const batch = pending.slice(0, 4);              // 카카오내비 경유지 최대 3 + 도착 1
+  const dest = batch[batch.length - 1];
+  const viaList = batch.slice(0, -1).map(s => ({ name: s.clientName, x: s.lng, y: s.lat, coordType: 'wgs84' }));
+
+  try {
+    Kakao.Navi.start({
+      name: dest.clientName, x: dest.lng, y: dest.lat, coordType: 'wgs84',
+      viaList: viaList.length ? viaList : undefined
+    });
+    showBanner(`🧭 다음 ${batch.length}곳 안내 시작 (${batch.map(s=>s.clientName).join(' → ')})`, 'ok');
+  } catch(e) {
+    showBanner('내비 실행 실패 — 핸드폰에 카카오내비 앱이 설치돼 있어야 합니다', 'err');
+  }
+}
+
 // ═══ 납품 완료 처리 ═══════════════════════════════════
-async function markDone(idx) {
+async function markDone(idx, auto) {
   const stop = STOPS[idx];
   if (stop.done) return;
 
@@ -649,6 +681,21 @@ async function markDone(idx) {
 
   renderStops();
   updateProgress();
+  showBanner(`✅ ${stop.clientName} 납품완료${auto ? ' (자동 감지)' : ''}`, 'ok');
+}
+
+// 자동 납품완료 — 현재 위치가 미완료 거래처 반경 안에 들어오면 자동 처리
+const AUTO_DONE_RADIUS_M = 120;   // 도착 인정 반경(m)
+function checkAutoArrival() {
+  if (cfg('auto_done', 'on') !== 'on') return;
+  if (CUR_LAT == null || CUR_LNG == null) return;
+  // 빠르게 이동 중이면(그냥 지나가는 중) 자동완료 금지
+  if (CUR_SPEED != null && CUR_SPEED > 3) return;   // 3 m/s ≈ 약 11km/h
+  STOPS.forEach((s, idx) => {
+    if (s.done || !s.lat || !s.lng) return;
+    const dM = haversine(CUR_LAT, CUR_LNG, s.lat, s.lng) * 1000;
+    if (dM <= AUTO_DONE_RADIUS_M) markDone(idx, true);
+  });
 }
 
 // ═══ 렌더링 ══════════════════════════════════════════
@@ -814,6 +861,7 @@ function updateGpsDot(boundsToExtend) {
 
 // ═══ GPS 추적 ═══════════════════════════════════════
 let GPS_ON = false;
+let CUR_SPEED = null;   // 현재 속도(m/s) — 자동완료 오작동 방지용
 
 function toggleGps() {
   if (GPS_ON) { stopGps(); }
@@ -828,13 +876,16 @@ function startGps() {
   document.getElementById('gpsToggleLabel').textContent = '끄기';
   document.getElementById('gpsDot').classList.add('on');
   document.getElementById('gpsStatus').textContent = 'GPS 켜짐';
+  requestWakeLock();   // 추적 중엔 화면 안 꺼지게
 
   GPS_ID = navigator.geolocation.watchPosition(
     pos => {
       CUR_LAT = pos.coords.latitude;
       CUR_LNG = pos.coords.longitude;
+      CUR_SPEED = pos.coords.speed;   // m/s (없으면 null)
       document.getElementById('gpsStatus').textContent = `GPS ${CUR_LAT.toFixed(4)}, ${CUR_LNG.toFixed(4)}`;
-      updateGpsDot();  // 지도 위 내 위치 점 이동
+      updateGpsDot();        // 지도 위 내 위치 점 이동
+      checkAutoArrival();    // 거래처 도착하면 자동 납품완료
     },
     err => { document.getElementById('gpsStatus').textContent = 'GPS 오류: ' + err.message; },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
@@ -851,7 +902,27 @@ function stopGps() {
   document.getElementById('gpsToggleLabel').textContent = '켜기';
   document.getElementById('gpsDot').classList.remove('on');
   document.getElementById('gpsStatus').textContent = 'GPS 꺼짐';
+  releaseWakeLock();
 }
+
+// ═══ 화면 항상 켜기 (Wake Lock) ═══════════════════════
+let WAKE_LOCK = null;
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      WAKE_LOCK = await navigator.wakeLock.request('screen');
+      WAKE_LOCK.addEventListener('release', () => { WAKE_LOCK = null; });
+    }
+  } catch(e) { /* 미지원·거부 시 무시 */ }
+}
+function releaseWakeLock() {
+  try { if (WAKE_LOCK) WAKE_LOCK.release(); } catch(e) {}
+  WAKE_LOCK = null;
+}
+// 화면 잠깐 가렸다 돌아오면(내비 다녀오면) 다시 켜기
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && GPS_ON && !WAKE_LOCK) requestWakeLock();
+});
 
 async function sendLocationToSupabase() {
   if (!CUR_LAT || !CUR_LNG || !DRIVER) return;
@@ -883,6 +954,7 @@ function openSettings() {
   document.getElementById('cfg_wh_close').value = cfg('wh_close', '11:20');
   document.getElementById('cfg_kakao_key').value = cfg('kakao_key', '');
   document.getElementById('cfg_kakao_js_key').value = cfg('kakao_js_key', '');
+  document.getElementById('cfg_auto_done').checked = (cfg('auto_done', 'on') === 'on');
   document.getElementById('cfg_drivers').value = cfg('drivers', '홍길동\n김드라이버');
   document.getElementById('settingsModal').classList.add('open');
 }
@@ -896,6 +968,7 @@ function saveSettings() {
   cfgSet('wh_close',   document.getElementById('cfg_wh_close').value);
   cfgSet('kakao_key',  document.getElementById('cfg_kakao_key').value.trim());
   cfgSet('kakao_js_key', document.getElementById('cfg_kakao_js_key').value.trim());
+  cfgSet('auto_done',  document.getElementById('cfg_auto_done').checked ? 'on' : 'off');
   cfgSet('drivers',    document.getElementById('cfg_drivers').value.trim());
   closeSettings();
   showBanner('설정 저장됨', 'ok');

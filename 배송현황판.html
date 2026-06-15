@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>배송 현황판 — 월성푸드</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--blue:#1a3a5c;--green:#27ae60;--red:#e74c3c;--orange:#e67e22;--gray:#f0f2f5;--border:#dee2e6}
+body{font-family:'Malgun Gothic',sans-serif;background:var(--gray);font-size:14px}
+
+/* 상단바 */
+.topbar{background:var(--blue);color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}
+.topbar h1{font-size:18px;font-weight:bold}
+.topbar .meta{font-size:12px;opacity:.7;margin-top:2px}
+.live-dot{width:10px;height:10px;border-radius:50%;background:#2ecc71;display:inline-block;margin-right:6px;animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* 레이아웃 */
+.layout{display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100vh - 54px)}
+
+/* 왼쪽 패널 */
+.left-panel{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.panel-header{padding:14px 16px;border-bottom:1px solid var(--border);background:#fff;flex-shrink:0}
+.panel-header h2{font-size:15px;font-weight:bold;color:var(--blue)}
+.panel-body{overflow-y:auto;flex:1;padding:12px}
+
+/* 날짜 선택 */
+.date-bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.date-bar input{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px}
+.btn{padding:8px 14px;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-green{background:var(--green);color:#fff}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn:hover{opacity:.88}
+
+/* 기사 카드 */
+.driver-card{border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden}
+.driver-header{background:var(--blue);color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between}
+.driver-name{font-weight:bold;font-size:15px}
+.driver-stats{font-size:12px;opacity:.85}
+.driver-location{font-size:11px;padding:6px 14px;background:#f8f9fa;border-bottom:1px solid var(--border);color:#666}
+.progress-bar{height:5px;background:#e0e0e0}
+.progress-fill{height:100%;background:var(--green);transition:.4s}
+
+/* 납품 목록 */
+.stop-list{padding:0}
+.stop-row{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f0f0f0;font-size:13px}
+.stop-row:last-child{border-bottom:none}
+.stop-row.done{background:#f6fff8}
+.stop-check{width:20px;height:20px;border-radius:50%;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px}
+.stop-check.done{background:var(--green);border-color:var(--green);color:#fff}
+.stop-info{flex:1}
+.stop-name{font-weight:bold;color:#333}
+.stop-time{font-size:11px;color:#999;margin-top:1px}
+.stop-num{font-size:11px;color:#aaa;width:20px;text-align:center}
+
+/* 오른쪽 지도 패널 */
+.right-panel{position:relative;background:#e8ecf0}
+#mapArea{width:100%;height:100%}
+.map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#666;text-align:center;padding:40px}
+.map-placeholder .icon{font-size:64px;margin-bottom:16px}
+.map-placeholder h3{font-size:20px;margin-bottom:8px;color:#444}
+.map-placeholder p{font-size:13px;line-height:1.7;color:#888;max-width:360px}
+.map-placeholder code{background:#fff;padding:2px 8px;border-radius:4px;font-size:12px;border:1px solid #ddd}
+.map-overlay{position:absolute;top:12px;right:12px;background:rgba(255,255,255,.95);border-radius:10px;padding:12px 16px;box-shadow:0 2px 8px rgba(0,0,0,.12);min-width:200px}
+.map-overlay h4{font-size:13px;font-weight:bold;color:var(--blue);margin-bottom:8px}
+.driver-pin{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px}
+.pin-dot{width:12px;height:12px;border-radius:50%;background:var(--blue);flex-shrink:0}
+.pin-dot.c0{background:#e74c3c}
+.pin-dot.c1{background:#3498db}
+.pin-dot.c2{background:#9b59b6}
+.pin-time{font-size:11px;color:#999}
+
+/* 요약 배너 */
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat-box{background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center}
+.stat-num{font-size:24px;font-weight:bold;color:var(--blue)}
+.stat-label{font-size:11px;color:#888;margin-top:2px}
+
+/* 갱신 표시 */
+.update-tag{font-size:11px;color:#aaa;padding:4px 8px;background:#f8f9fa;border-radius:4px;margin-left:auto}
+
+/* 실시간 배지 */
+.realtime-badge{background:#2ecc71;color:#fff;font-size:10px;font-weight:bold;padding:2px 6px;border-radius:10px;margin-left:6px}
+
+/* 접힘 토글 */
+.collapse-btn{background:none;border:none;cursor:pointer;color:#aaa;font-size:16px;padding:0 4px}
+
+@media(max-width:900px){
+  .layout{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .left-panel{max-height:55vh}
+  .right-panel{height:45vh}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>🚚 배송 현황판 <span class="realtime-badge">실시간</span></h1>
+    <div class="meta" id="lastUpdate">데이터 불러오는 중...</div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <input type="date" id="dateInput" style="padding:6px 10px;border:1px solid rgba(255,255,255,.4);border-radius:6px;background:rgba(255,255,255,.15);color:#fff;font-size:13px">
+    <button class="btn btn-green btn-sm" onclick="loadAll()">🔄 새로고침</button>
+    <button class="btn btn-sm" style="background:rgba(255,255,255,.15);color:#fff" onclick="openSettings()">⚙️</button>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- 왼쪽: 기사별 현황 -->
+  <div class="left-panel">
+    <div class="panel-header">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h2><span class="live-dot"></span> 기사별 납품 현황</h2>
+        <span class="update-tag" id="updateTag">-</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="summary">
+        <div class="stat-box"><div class="stat-num" id="statDrivers">0</div><div class="stat-label">출동 기사</div></div>
+        <div class="stat-box"><div class="stat-num" id="statDone">0</div><div class="stat-label">납품완료</div></div>
+        <div class="stat-box"><div class="stat-num" id="statPending">0</div><div class="stat-label">남은 곳</div></div>
+      </div>
+      <div id="driverArea">
+        <div style="text-align:center;padding:40px;color:#aaa">
+          <div style="font-size:36px;margin-bottom:10px">📋</div>
+          날짜를 선택하고 새로고침을 누르세요
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 오른쪽: 지도 -->
+  <div class="right-panel">
+    <div id="mapArea">
+      <div class="map-placeholder">
+        <div class="icon">🗺️</div>
+        <h3>카카오맵 실시간 위치</h3>
+        <p>
+          카카오 JavaScript API 키를 설정하면<br>
+          기사님 실시간 위치가 지도에 표시됩니다.<br><br>
+          <strong>설정 방법:</strong><br>
+          ⚙️ 설정 버튼 → 카카오 JS API 키 입력<br><br>
+          API 키가 없어도 왼쪽 패널에서<br>
+          기사 위치와 납품 현황을 확인할 수 있습니다.
+        </p>
+        <div id="mapFallback" style="margin-top:20px;width:100%;max-width:420px"></div>
+      </div>
+    </div>
+    <!-- 기사 위치 오버레이 (지도 없을 때도 표시) -->
+    <div class="map-overlay" id="locationOverlay" style="display:none">
+      <h4>📍 기사 현재 위치</h4>
+      <div id="locationList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 설정 모달 -->
+<div id="settingsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:420px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:16px;font-weight:bold">⚙️ 설정</h3>
+      <button onclick="closeSettings()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999">✕</button>
+    </div>
+    <label style="font-size:12px;color:#666;display:block;margin-bottom:3px">카카오 JavaScript API 키 (지도 표시용)</label>
+    <input type="text" id="cfg_js_key" placeholder="카카오 개발자 콘솔 → 내 애플리케이션 → 앱 키 → JavaScript 키" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:12px">
+    <label style="font-size:12px;color:#666;display:block;margin-bottom:3px">기사 목록 (줄바꿈으로 구분)</label>
+    <textarea id="cfg_drivers" rows="4" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:12px" placeholder="홍길동&#10;김배달"></textarea>
+    <button class="btn btn-blue" style="width:100%" onclick="saveSettings()">💾 저장</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ═══ Supabase ══════════════════════════════════════
+const SUPABASE_URL = 'https://bjerikppbvbjlwptzfkn.supabase.co';
+const ANON_KEY     = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqZXJpa3BwYnZiamx3cHR6ZmtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNjgzMzgsImV4cCI6MjA5Njg0NDMzOH0.XU6vYjZ6Vc0-f-TfQwkx1D7hNdMXspeRttt_HtacL-A';
+const sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
+
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let KAKAO_MAP = null;
+let MARKERS = {};
+let REALTIME_CH = null;
+
+// ═══ 설정 ══════════════════════════════════════════
+function cfg(k,d){ try{return localStorage.getItem('dashboard_'+k)||d}catch(e){return d} }
+function cfgSet(k,v){ try{localStorage.setItem('dashboard_'+k,v)}catch(e){} }
+
+// ═══ 초기화 ═════════════════════════════════════════
+function init() {
+  const today = new Date();
+  const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
+  document.getElementById('dateInput').value = `${y}-${m}-${d}`;
+
+  const jsKey = cfg('js_key','');
+  if (jsKey) loadKakaoMap(jsKey);
+
+  loadAll();
+  startRealtime();
+  setInterval(loadAll, 60000); // 1분마다 자동 갱신
+}
+
+// ═══ 카카오맵 로드 ═══════════════════════════════════
+function loadKakaoMap(key) {
+  const s = document.createElement('script');
+  s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false`;
+  s.onload = () => {
+    kakao.maps.load(() => {
+      const container = document.getElementById('mapArea');
+      container.innerHTML = '';
+      KAKAO_MAP = new kakao.maps.Map(container, {
+        center: new kakao.maps.LatLng(37.0, 127.28),
+        level: 10
+      });
+      document.getElementById('locationOverlay').style.display = 'block';
+    });
+  };
+  document.head.appendChild(s);
+}
+
+// ═══ 전체 데이터 로드 ════════════════════════════════
+async function loadAll() {
+  const date = document.getElementById('dateInput').value;
+  if (!date) return;
+
+  try {
+    // 1) 오늘 주문 (납품 대상 거래처 목록) — 거래처명은 work_order(헤더)에 있음
+    const { data: woHeaders, error: eHdr } = await sb
+      .from('work_order')
+      .select('id, client_name, status')
+      .eq('delivery_date', date);
+    if (eHdr) throw eHdr;
+    // 작업지시서에는 기사 배정 컬럼이 없으므로 driver_name 은 납품기록(delivery_logs)에서 가져옴
+    const orders = (woHeaders || [])
+      .filter(h => h.status !== 'cancelled')
+      .map(h => ({ client_name: h.client_name, driver_name: null }));
+
+    // 2) 납품 완료 기록
+    const { data: logs } = await sb
+      .from('delivery_logs')
+      .select('client_name, driver_name, completed_at, lat, lng')
+      .eq('session_date', date);
+
+    // 3) 기사 현재 위치
+    const { data: locs } = await sb
+      .from('driver_locations')
+      .select('driver_name, lat, lng, updated_at')
+      .eq('session_date', date);
+
+    renderDashboard(orders||[], logs||[], locs||[]);
+    updateTimestamp();
+
+  } catch(e) {
+    console.error('로드 실패:', e.message);
+    document.getElementById('driverArea').innerHTML =
+      `<div style="color:#e74c3c;padding:20px;text-align:center">⚠️ 데이터 로드 실패: ${esc(e.message)}<br><small>Supabase 테이블이 생성되지 않았을 수 있습니다.<br>주소동기화.py를 실행해 테이블을 만드세요.</small></div>`;
+  }
+}
+
+// ═══ 현황판 렌더링 ════════════════════════════════════
+function renderDashboard(orders, logs, locs) {
+  const drivers = getDriverList();
+  const doneMap = {};  // clientName → {driver, time, lat, lng}
+  logs.forEach(l => { doneMap[l.client_name] = l; });
+
+  // 거래처 → 기사 매핑 (작업지시서에서 driver_name이 없을 수 있으므로 로그 기준)
+  const clientDriverMap = {};
+  logs.forEach(l => { if (l.driver_name) clientDriverMap[l.client_name] = l.driver_name; });
+  orders.forEach(o => { if (o.driver_name && !clientDriverMap[o.client_name]) clientDriverMap[o.client_name] = o.driver_name; });
+
+  // 거래처 목록 (중복 제거)
+  const allClients = [...new Set((orders||[]).map(o=>o.client_name))];
+
+  // 기사별 그룹
+  const driverGroups = {};
+  const activeDrivers = new Set();
+
+  // 완료된 납품에서 기사 추출
+  logs.forEach(l => {
+    if (!l.driver_name) return;
+    activeDrivers.add(l.driver_name);
+    if (!driverGroups[l.driver_name]) driverGroups[l.driver_name] = { clients: [], done: 0, total: 0 };
+  });
+
+  // 전체 거래처를 기사에 배분
+  allClients.forEach(cn => {
+    const driver = clientDriverMap[cn] || '미배정';
+    if (!driverGroups[driver]) driverGroups[driver] = { clients: [], done: 0, total: 0 };
+    const isDone = !!doneMap[cn];
+    driverGroups[driver].clients.push({ name: cn, done: isDone, time: doneMap[cn]?.completed_at });
+    driverGroups[driver].total++;
+    if (isDone) driverGroups[driver].done++;
+  });
+
+  // 위치 맵
+  const locMap = {};
+  locs.forEach(l => { locMap[l.driver_name] = l; });
+
+  // 통계
+  const totalDone = logs.length;
+  const totalPending = allClients.length - totalDone;
+  const numDrivers = Object.keys(driverGroups).filter(d => d !== '미배정').length || locs.length;
+
+  document.getElementById('statDrivers').textContent = Math.max(numDrivers, locs.length);
+  document.getElementById('statDone').textContent = totalDone;
+  document.getElementById('statPending').textContent = Math.max(0, totalPending);
+
+  // 기사 카드 렌더링
+  const colors = ['c0','c1','c2','c3','c4'];
+  let html = '';
+  const driverKeys = Object.keys(driverGroups);
+
+  if (driverKeys.length === 0 && locs.length === 0) {
+    html = `<div style="text-align:center;padding:30px;color:#aaa">
+      <div style="font-size:36px;margin-bottom:8px">🚚</div>
+      아직 출동한 기사가 없거나<br>오늘 납품 데이터가 없습니다
+    </div>`;
+  }
+
+  driverKeys.forEach((driver, di) => {
+    const grp = driverGroups[driver];
+    const pct = grp.total > 0 ? Math.round(grp.done / grp.total * 100) : 0;
+    const loc = locMap[driver];
+    const colorCls = colors[di % colors.length];
+    const locText = loc
+      ? `📍 ${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)} · ${timeDiff(loc.updated_at)}전 갱신`
+      : '📍 위치 미수신';
+
+    html += `<div class="driver-card">
+      <div class="driver-header" style="background:${driverHeaderColor(di)}">
+        <span class="driver-name">🚚 ${esc(driver)}</span>
+        <span class="driver-stats">${grp.done}/${grp.total} 완료 (${pct}%)</span>
+      </div>
+      <div class="driver-location">${esc(locText)}</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+      <div class="stop-list">`;
+
+    grp.clients.forEach((c, ci) => {
+      const timeStr = c.done && c.time ? formatTime(c.time) : '';
+      html += `<div class="stop-row ${c.done?'done':''}">
+        <span class="stop-num">${ci+1}</span>
+        <div class="stop-check ${c.done?'done':''}">
+          ${c.done ? '✓' : ''}
+        </div>
+        <div class="stop-info">
+          <div class="stop-name">${esc(c.name)}</div>
+          ${timeStr ? `<div class="stop-time">✅ ${timeStr} 완료</div>` : ''}
+        </div>
+      </div>`;
+    });
+
+    html += `</div></div>`;
+  });
+
+  // 위치만 있고 주문 없는 기사 (창고 배송 등)
+  locs.forEach((loc, li) => {
+    if (driverGroups[loc.driver_name]) return;
+    html += `<div class="driver-card">
+      <div class="driver-header" style="background:${driverHeaderColor(driverKeys.length + li)}">
+        <span class="driver-name">🚚 ${esc(loc.driver_name)}</span>
+        <span class="driver-stats">이동 중</span>
+      </div>
+      <div class="driver-location">📍 ${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)} · ${timeDiff(loc.updated_at)}전 갱신</div>
+    </div>`;
+  });
+
+  document.getElementById('driverArea').innerHTML = html;
+
+  // 위치 오버레이 갱신
+  renderLocationOverlay(locs);
+
+  // 카카오맵 마커 갱신
+  if (KAKAO_MAP) updateMapMarkers(locs);
+}
+
+function driverHeaderColor(i) {
+  const colors = ['#1a3a5c','#c0392b','#2980b9','#8e44ad','#16a085'];
+  return colors[i % colors.length];
+}
+
+// ═══ 위치 오버레이 ═══════════════════════════════════
+function renderLocationOverlay(locs) {
+  const overlay = document.getElementById('locationOverlay');
+  const list = document.getElementById('locationList');
+
+  // 지도 없을 때도 fallback으로 표시
+  const fallback = document.getElementById('mapFallback');
+  if (fallback) {
+    if (locs.length > 0) {
+      let fb = '<div style="width:100%;text-align:left">';
+      locs.forEach(loc => {
+        fb += `<div style="background:#fff;border-radius:8px;padding:10px 14px;margin-bottom:8px;border:1px solid #ddd">
+          <b>🚚 ${esc(loc.driver_name)}</b><br>
+          <span style="font-size:12px;color:#666">위도 ${loc.lat.toFixed(5)} / 경도 ${loc.lng.toFixed(5)}</span><br>
+          <span style="font-size:11px;color:#aaa">${timeDiff(loc.updated_at)}전 갱신</span>
+        </div>`;
+      });
+      fb += '</div>';
+      fallback.innerHTML = fb;
+    }
+  }
+
+  if (locs.length === 0) { overlay.style.display = 'none'; return; }
+  overlay.style.display = 'block';
+
+  const colors = ['#e74c3c','#3498db','#9b59b6','#16a085','#e67e22'];
+  let html = '';
+  locs.forEach((loc, i) => {
+    html += `<div class="driver-pin">
+      <div class="pin-dot" style="background:${colors[i%colors.length]}"></div>
+      <div>
+        <b>${esc(loc.driver_name)}</b>
+        <div class="pin-time">${timeDiff(loc.updated_at)}전 갱신</div>
+      </div>
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+
+// ═══ 카카오맵 마커 ════════════════════════════════════
+function updateMapMarkers(locs) {
+  if (!KAKAO_MAP || !window.kakao) return;
+  const colors = ['#e74c3c','#3498db','#9b59b6','#16a085','#e67e22'];
+
+  // 기존 마커 제거 — MARKERS 값은 {overlay, circle} 묶음이므로 각각 setMap(null)
+  Object.values(MARKERS).forEach(m => {
+    if (m.overlay) m.overlay.setMap(null);
+    if (m.circle) m.circle.setMap(null);
+  });
+  MARKERS = {};
+
+  if (locs.length === 0) return;
+
+  const bounds = new kakao.maps.LatLngBounds();
+  locs.forEach((loc, i) => {
+    const pos = new kakao.maps.LatLng(loc.lat, loc.lng);
+    const content = `<div style="background:${colors[i%colors.length]};color:#fff;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:bold;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,.3)">🚚 ${esc(loc.driver_name)}</div>`;
+    const overlay = new kakao.maps.CustomOverlay({ position: pos, content, yAnchor: 1.3 });
+    overlay.setMap(KAKAO_MAP);
+    const circle = new kakao.maps.Circle({ center: pos, radius: 300, strokeWeight: 2, strokeColor: colors[i%colors.length], strokeOpacity: 0.8, fillColor: colors[i%colors.length], fillOpacity: 0.15 });
+    circle.setMap(KAKAO_MAP);
+    MARKERS[loc.driver_name] = { overlay, circle };
+    bounds.extend(pos);
+  });
+
+  // 기사가 1명이면 setBounds가 너무 확대되므로 적당한 레벨로 중심 이동
+  if (locs.length === 1) {
+    KAKAO_MAP.setCenter(new kakao.maps.LatLng(locs[0].lat, locs[0].lng));
+    KAKAO_MAP.setLevel(5);
+  } else {
+    KAKAO_MAP.setBounds(bounds);
+  }
+}
+
+// ═══ 실시간 구독 (Supabase Realtime) ════════════════
+function startRealtime() {
+  if (REALTIME_CH) REALTIME_CH.unsubscribe();
+
+  REALTIME_CH = sb.channel('delivery-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations' }, () => loadAll())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_logs' }, () => loadAll())
+    .subscribe(status => {
+      const dot = document.querySelector('.live-dot');
+      if (status === 'SUBSCRIBED') { dot.style.background = '#2ecc71'; }
+      else { dot.style.background = '#e74c3c'; }
+    });
+}
+
+// ═══ 유틸 ════════════════════════════════════════════
+function timeDiff(isoStr) {
+  if (!isoStr) return '알 수 없음';
+  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (diff < 60) return diff + '초';
+  if (diff < 3600) return Math.floor(diff/60) + '분';
+  return Math.floor(diff/3600) + '시간';
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+function updateTimestamp() {
+  const now = new Date();
+  document.getElementById('lastUpdate').textContent =
+    `마지막 갱신: ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  document.getElementById('updateTag').textContent =
+    now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0') + ' 갱신';
+}
+
+function getDriverList() {
+  return (cfg('drivers','홍길동\n김드라이버')).split('\n').map(s=>s.trim()).filter(Boolean);
+}
+
+// ═══ 설정 ════════════════════════════════════════════
+function openSettings() {
+  document.getElementById('cfg_js_key').value = cfg('js_key','');
+  document.getElementById('cfg_drivers').value = cfg('drivers','홍길동\n김드라이버');
+  document.getElementById('settingsModal').style.display = 'flex';
+}
+function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+function saveSettings() {
+  cfgSet('js_key', document.getElementById('cfg_js_key').value.trim());
+  cfgSet('drivers', document.getElementById('cfg_drivers').value.trim());
+  closeSettings();
+  const key = cfg('js_key','');
+  if (key && !KAKAO_MAP) loadKakaoMap(key);
+  loadAll();
+}
+
+// ═══ 시작 ════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>

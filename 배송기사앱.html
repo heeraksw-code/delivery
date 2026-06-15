@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a3a5c">
+<title>배송기사 앱 — 월성푸드</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--blue:#1a3a5c;--green:#27ae60;--red:#e74c3c;--orange:#e67e22;--gray:#f0f2f5;--border:#dee2e6}
+body{font-family:'Malgun Gothic',sans-serif;background:var(--gray);font-size:14px;min-height:100vh}
+.topbar{background:var(--blue);color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar h1{font-size:16px;font-weight:bold}
+.topbar .gear{font-size:20px;cursor:pointer;padding:4px}
+.wrap{padding:12px;max-width:480px;margin:0 auto}
+.card{background:#fff;border-radius:10px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card h3{font-size:13px;color:var(--blue);font-weight:bold;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 18px;border:none;border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer;width:100%;margin-bottom:8px}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-green{background:var(--green);color:#fff}
+.btn-red{background:var(--red);color:#fff}
+.btn-orange{background:var(--orange);color:#fff}
+.btn-gray{background:#6c757d;color:#fff}
+.btn-sm{padding:7px 12px;font-size:12px;width:auto;margin-bottom:0}
+.btn:active{opacity:.8}
+.row{display:flex;gap:8px}
+.row .btn{flex:1}
+input,select{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:8px}
+label{font-size:12px;color:#666;display:block;margin-bottom:3px}
+
+/* 로그인 화면 */
+#loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:var(--blue)}
+#loginScreen .box{background:#fff;border-radius:16px;padding:28px 24px;width:100%;max-width:340px;text-align:center}
+#loginScreen h2{color:var(--blue);font-size:20px;margin-bottom:6px}
+#loginScreen p{color:#666;font-size:13px;margin-bottom:20px}
+.driver-btn{display:block;width:100%;padding:13px;margin-bottom:10px;border:2px solid var(--border);border-radius:10px;background:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:.15s}
+.driver-btn:hover{border-color:var(--blue);background:#f0f4ff}
+
+/* 납품 목록 */
+.stop-card{background:#fff;border-radius:10px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);position:relative}
+.stop-card.done{opacity:.55}
+.stop-header{display:flex;align-items:center;padding:12px 14px;gap:10px;border-bottom:1px solid var(--border)}
+.stop-num{width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;font-size:13px;font-weight:bold;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.stop-card.done .stop-num{background:#aaa}
+.stop-name{font-weight:bold;font-size:15px;flex:1}
+.stop-addr{font-size:11px;color:#888;margin-top:2px}
+.stop-body{padding:10px 14px}
+.stop-item{font-size:13px;color:#444;padding:3px 0;border-bottom:1px solid #f5f5f5}
+.stop-item:last-child{border-bottom:none}
+.stop-actions{display:flex;gap:8px;padding:10px 14px;background:#fafafa}
+.done-badge{position:absolute;top:10px;right:10px;background:var(--green);color:#fff;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:12px}
+
+/* 창고 카드 */
+.warehouse-card{border:2px solid var(--orange);background:#fff9f0}
+.warehouse-card .stop-num{background:var(--orange)}
+
+/* 상태바 */
+.status-bar{background:var(--blue);color:#fff;padding:8px 16px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+.gps-dot{width:8px;height:8px;border-radius:50%;background:#aaa;display:inline-block;margin-right:5px}
+.gps-dot.on{background:#2ecc71;animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* 설정 모달 */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200}
+.modal-overlay.open{display:flex;align-items:flex-end;justify-content:center}
+.modal-box{background:#fff;border-radius:16px 16px 0 0;padding:20px;width:100%;max-width:480px;max-height:85vh;overflow-y:auto}
+.modal-box h3{font-size:16px;font-weight:bold;margin-bottom:16px}
+.modal-close{float:right;background:none;border:none;font-size:22px;cursor:pointer;color:#999}
+
+/* 경고 배너 */
+.banner{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:10px}
+.banner-warn{background:#fff3cd;color:#856404;border:1px solid #ffc107}
+.banner-ok{background:#d4edda;color:#155724;border:1px solid #c3e6cb}
+.banner-err{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb}
+
+/* 빈 화면 */
+.empty{text-align:center;padding:40px 20px;color:#aaa}
+.empty .icon{font-size:48px;margin-bottom:10px}
+
+.progress-bar{height:6px;background:#e0e0e0;border-radius:3px;margin:8px 0}
+.progress-fill{height:100%;background:var(--green);border-radius:3px;transition:.3s}
+</style>
+</head>
+<body>
+
+<!-- ─── 로그인 화면 ─── -->
+<div id="loginScreen">
+  <div class="box">
+    <div style="font-size:40px;margin-bottom:8px">🚚</div>
+    <h2>월성푸드 배송</h2>
+    <p>기사님 이름을 선택하세요</p>
+    <div id="driverList"></div>
+    <div style="margin-top:16px;border-top:1px solid #eee;padding-top:16px">
+      <input type="text" id="newDriverName" placeholder="직접 입력..." style="margin-bottom:8px">
+      <button class="btn btn-blue" onclick="loginWithName(document.getElementById('newDriverName').value)">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 메인 화면 ─── -->
+<div id="mainScreen" style="display:none">
+  <div class="topbar">
+    <div>
+      <div style="font-size:12px;opacity:.7">월성푸드 배송</div>
+      <div id="driverNameDisplay" style="font-size:16px;font-weight:bold"></div>
+    </div>
+    <span class="gear" onclick="openSettings()">⚙️</span>
+  </div>
+
+  <div class="status-bar">
+    <span><span class="gps-dot" id="gpsDot"></span><span id="gpsStatus">GPS 꺼짐</span></span>
+    <span id="progressText">0/0 완료</span>
+  </div>
+
+  <div class="wrap">
+    <!-- 날짜 + 불러오기 -->
+    <div class="card">
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:1">
+          <label>납품일</label>
+          <input type="date" id="dateInput">
+        </div>
+        <button class="btn btn-blue btn-sm" style="margin-bottom:8px;flex:0 0 auto;padding:10px 16px" onclick="loadOrders()">불러오기</button>
+      </div>
+      <div class="row">
+        <button class="btn btn-orange btn-sm" onclick="optimizeRoute()">⚡ 경로 최적화</button>
+        <button class="btn btn-gray btn-sm" onclick="toggleGps()">📍 GPS <span id="gpsToggleLabel">켜기</span></button>
+      </div>
+    </div>
+
+    <div id="bannerArea"></div>
+    <div id="stopList"></div>
+  </div>
+</div>
+
+<!-- ─── 설정 모달 ─── -->
+<div class="modal-overlay" id="settingsModal" onclick="if(event.target===this)closeSettings()">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeSettings()">✕</button>
+    <h3>⚙️ 설정</h3>
+
+    <label>출발지 주소 (회사)</label>
+    <input type="text" id="cfg_depot" placeholder="예: 경기도 안성시 공도읍...">
+
+    <label>보세창고 이름</label>
+    <input type="text" id="cfg_wh_name" placeholder="예: OO냉동창고">
+
+    <label>보세창고 주소</label>
+    <input type="text" id="cfg_wh_addr" placeholder="보세창고 주소">
+
+    <label>창고 이용 가능 시간 (오전 마감)</label>
+    <input type="time" id="cfg_wh_close" value="11:20">
+    <small style="color:#888;font-size:11px;display:block;margin:-4px 0 8px">이 시각 이후 ~ 13:00 사이 도착은 점심시간 겹침 경고</small>
+
+    <label>카카오맵 API 키 (선택, 경로 자동최적화용)</label>
+    <input type="text" id="cfg_kakao_key" placeholder="REST API 키 입력 (없으면 수동 순서 사용)">
+
+    <label>기사 목록 (줄바꿈으로 구분)</label>
+    <textarea id="cfg_drivers" rows="4" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:8px" placeholder="홍길동&#10;김배달&#10;이드라이버"></textarea>
+
+    <button class="btn btn-blue" onclick="saveSettings()">💾 저장</button>
+    <button class="btn btn-red" style="margin-top:6px" onclick="logout()">로그아웃</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ═══ Supabase 연결 ═══════════════════════════════
+const SUPABASE_URL  = 'https://bjerikppbvbjlwptzfkn.supabase.co';
+const ANON_KEY      = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqZXJpa3BwYnZiamx3cHR6ZmtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNjgzMzgsImV4cCI6MjA5Njg0NDMzOH0.XU6vYjZ6Vc0-f-TfQwkx1D7hNdMXspeRttt_HtacL-A';
+const sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
+
+// ═══ 상태 ════════════════════════════════════════
+let DRIVER = '';
+let STOPS  = [];       // [{clientName, address, lat, lng, items, done, warehouseHere}]
+let GPS_ID = null;
+let CUR_LAT = null, CUR_LNG = null;
+let GPS_SEND_TIMER = null;
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// ═══ 설정 로드 ════════════════════════════════════
+function cfg(key, def) { try { return localStorage.getItem('dlv_' + key) || def; } catch(e) { return def; } }
+function cfgSet(key, val) { try { localStorage.setItem('dlv_' + key, val); } catch(e) {} }
+
+// ═══ 로그인 ═══════════════════════════════════════
+function initLogin() {
+  const saved = cfg('driver', '');
+  if (saved) { login(saved); return; }
+
+  const drivers = (cfg('drivers', '홍길동\n김드라이버')).split('\n').map(s=>s.trim()).filter(Boolean);
+  let html = '';
+  drivers.forEach(d => {
+    html += `<button class="driver-btn" onclick="loginWithName('${esc(d)}')">${esc(d)}</button>`;
+  });
+  document.getElementById('driverList').innerHTML = html;
+}
+
+function loginWithName(name) {
+  if (!name || !name.trim()) { alert('이름을 입력하세요'); return; }
+  login(name.trim());
+}
+
+function login(name) {
+  DRIVER = name;
+  cfgSet('driver', name);
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainScreen').style.display = 'block';
+  document.getElementById('driverNameDisplay').textContent = name + ' 기사님';
+
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth()+1).padStart(2,'0');
+  const dd = String(today.getDate()).padStart(2,'0');
+  document.getElementById('dateInput').value = `${yyyy}-${mm}-${dd}`;
+
+  loadOrders();
+}
+
+function logout() {
+  cfgSet('driver', '');
+  stopGps();
+  DRIVER = '';
+  STOPS = [];
+  document.getElementById('mainScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  initLogin();
+  closeSettings();
+}
+
+// ═══ 주문 불러오기 ════════════════════════════════
+async function loadOrders() {
+  const date = document.getElementById('dateInput').value;
+  if (!date) { showBanner('날짜를 선택하세요', 'warn'); return; }
+
+  showBanner('불러오는 중...', 'ok');
+
+  try {
+    // 1) work_order(헤더)에서 해당 날짜 주문 조회 — 거래처명·납품일은 헤더에 있음
+    const { data: headers, error: e1 } = await sb
+      .from('work_order')
+      .select('id, client_name, delivery_date, status')
+      .eq('delivery_date', date);
+    if (e1) throw e1;
+
+    const validHeaders = (headers || []).filter(h => h.status !== 'cancelled');
+
+    if (validHeaders.length === 0) {
+      showBanner(`${date} 납품 없음 — 작업지시서에서 주문을 먼저 입력하세요`, 'warn');
+      STOPS = [];
+      renderStops();
+      return;
+    }
+
+    // 2) work_order_line(품목)을 order_id로 조회
+    const orderIds = validHeaders.map(h => h.id);
+    const { data: lines, error: e2 } = await sb
+      .from('work_order_line')
+      .select('order_id, raw_name, order_qty, unit, work_state')
+      .in('order_id', orderIds);
+    if (e2) throw e2;
+
+    // 3) 거래처별로 묶기 (order_id → 거래처명 매핑 후 품목 그룹화)
+    const idToClient = {};
+    validHeaders.forEach(h => { idToClient[h.id] = h.client_name; });
+
+    const clientMap = {};
+    (lines || []).forEach(l => {
+      const cn = idToClient[l.order_id];
+      if (!cn) return;
+      if (!clientMap[cn]) clientMap[cn] = [];
+      clientMap[cn].push({ name: l.raw_name, qty: l.order_qty, unit: l.unit });
+    });
+    // 품목이 하나도 없는 거래처도 표시되도록 헤더 기준으로 빈 배열 보장
+    validHeaders.forEach(h => { if (!clientMap[h.client_name]) clientMap[h.client_name] = []; });
+
+    // 3) 주소 조회
+    const clientNames = Object.keys(clientMap);
+    const { data: addrs } = await sb
+      .from('delivery_customers')
+      .select('name, address, lat, lng')
+      .in('name', clientNames);
+
+    const addrMap = {};
+    (addrs || []).forEach(a => { addrMap[a.name] = a; });
+
+    // 4) 기존 완료 기록 조회 (이미 완료한 거래처)
+    const { data: logs } = await sb
+      .from('delivery_logs')
+      .select('client_name')
+      .eq('session_date', date)
+      .eq('driver_name', DRIVER);
+
+    const donSet = new Set((logs || []).map(l => l.client_name));
+
+    // 5) STOPS 배열 구성
+    STOPS = clientNames.map(cn => {
+      const a = addrMap[cn] || {};
+      return {
+        clientName: cn,
+        address: a.address || '주소 미등록',
+        lat: a.lat || null,
+        lng: a.lng || null,
+        items: clientMap[cn],
+        done: donSet.has(cn),
+        warehouseHere: false
+      };
+    });
+
+    // 미완료 먼저, 완료는 뒤로
+    STOPS.sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0));
+
+    // 창고 추가 (설정에 있으면)
+    const whName = cfg('wh_name', '');
+    const whAddr = cfg('wh_addr', '');
+    if (whName) {
+      const whDone = donSet.has(whName);
+      STOPS.push({
+        clientName: whName,
+        address: whAddr || '주소 미등록',
+        lat: null, lng: null,
+        items: [{ name: '보세창고 픽업', qty: '', unit: '' }],
+        done: whDone,
+        warehouseHere: true
+      });
+      // 창고 시간 판단
+      checkWarehouseTiming();
+    }
+
+    clearBanner();
+    renderStops();
+
+    const noAddr = STOPS.filter(s => s.address === '주소 미등록' && !s.warehouseHere).length;
+    if (noAddr > 0) {
+      showBanner(`⚠️ ${noAddr}곳 주소 미등록 — 주소동기화.py를 실행하거나 수동 설정 필요`, 'warn');
+    }
+
+  } catch(e) {
+    showBanner('오류: ' + (e.message || e), 'err');
+  }
+}
+
+// ═══ 창고 시간 판단 ════════════════════════════════
+function checkWarehouseTiming() {
+  const whClose = cfg('wh_close', '11:20');
+  const [h, m] = whClose.split(':').map(Number);
+  const closeMin = h * 60 + m;
+  const reOpenMin = 13 * 60;
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+  if (nowMin >= closeMin && nowMin < reOpenMin) {
+    showBanner(`⚠️ 지금은 창고 점심시간입니다 (${whClose}~13:00). 창고는 13:00 이후에 방문하세요.`, 'warn');
+  }
+}
+
+// ═══ 경로 최적화 ═══════════════════════════════════
+async function optimizeRoute() {
+  const kakaoKey = cfg('kakao_key', '');
+  const pendingStops = STOPS.filter(s => !s.done && !s.warehouseHere);
+  const warehouse = STOPS.find(s => s.warehouseHere);
+
+  // 좌표 없는 거래처 수
+  const noCoord = pendingStops.filter(s => !s.lat || !s.lng).length;
+
+  if (noCoord > 0 && kakaoKey) {
+    showBanner('주소를 좌표로 변환 중...', 'ok');
+    await geocodeAll(pendingStops, kakaoKey);
+  }
+
+  const withCoord = pendingStops.filter(s => s.lat && s.lng);
+  const noCoordList = pendingStops.filter(s => !s.lat || !s.lng);
+
+  if (withCoord.length < 2) {
+    showBanner('좌표가 등록된 거래처가 2곳 미만 — 순서를 수동으로 조정하거나 주소동기화 후 카카오 API 키를 설정하세요', 'warn');
+    return;
+  }
+
+  // TSP 최적화 (좌표 있는 것만)
+  const depot = getDepotCoords();
+  const optimized = nearestNeighborTSP(withCoord, depot);
+
+  // 창고 배치: 모든 배송 완료 예상 시간 확인
+  const whName = cfg('wh_name', '');
+  const whClose = cfg('wh_close', '11:20');
+  const [h, m] = whClose.split(':').map(Number);
+  const closeMin = h * 60 + m;
+  const reOpenMin = 13 * 60;
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+  // 창고를 마지막에 배치 (기본)
+  const reordered = [...optimized, ...noCoordList];
+  if (warehouse) {
+    // 현재 시각 기준: 지금 창고 가면 점심 걸리나?
+    if (nowMin >= closeMin && nowMin < reOpenMin) {
+      // 점심시간 중 → 창고는 무조건 마지막
+      STOPS = [...reordered.filter(s => !s.warehouseHere), warehouse];
+    } else if (nowMin < closeMin) {
+      // 오전 → 창고 오전에 갈 수 있으면 마지막, 못 가면 첫번째
+      STOPS = [...reordered.filter(s => !s.warehouseHere), warehouse];
+    } else {
+      // 13:00 이후 → 창고 마지막 OK
+      STOPS = [...reordered.filter(s => !s.warehouseHere), warehouse];
+    }
+  } else {
+    STOPS = reordered;
+  }
+
+  renderStops();
+  showBanner(`✅ 경로 최적화 완료 — ${withCoord.length}곳 자동 정렬${noCoordList.length>0?' ('+noCoordList.length+'곳 좌표없어 뒤에 추가)':''}`, 'ok');
+}
+
+// 출발지 좌표
+function getDepotCoords() {
+  // 설정에 좌표 없으면 대략적인 기본값 (한국 중심)
+  return { lat: 37.00, lng: 127.28 };
+}
+
+// 카카오 주소→좌표 변환
+async function geocodeAll(stops, apiKey) {
+  for (const stop of stops) {
+    if (stop.lat && stop.lng) continue;
+    if (!stop.address || stop.address === '주소 미등록') continue;
+    try {
+      const res = await fetch(
+        `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(stop.address)}`,
+        { headers: { Authorization: 'KakaoAK ' + apiKey } }
+      );
+      const data = await res.json();
+      if (data.documents && data.documents.length > 0) {
+        stop.lng = parseFloat(data.documents[0].x);
+        stop.lat = parseFloat(data.documents[0].y);
+        // Supabase에도 저장
+        await sb.from('delivery_customers')
+          .update({ lat: stop.lat, lng: stop.lng })
+          .eq('name', stop.clientName);
+      }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 100)); // rate limit
+  }
+}
+
+// ═══ TSP — 최근접 이웃 ══════════════════════════════
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLng = (lng2-lng1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function nearestNeighborTSP(stops, depot) {
+  if (stops.length <= 1) return stops;
+  const unvisited = [...stops];
+  const route = [];
+  let cur = depot;
+  while (unvisited.length > 0) {
+    let best = -1, bestDist = Infinity;
+    unvisited.forEach((s, i) => {
+      const d = haversine(cur.lat, cur.lng, s.lat, s.lng);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    route.push(unvisited[best]);
+    cur = unvisited[best];
+    unvisited.splice(best, 1);
+  }
+  return route;
+}
+
+// ═══ 네비게이션 연동 ════════════════════════════════
+function openKakaoNavi(lat, lng, name) {
+  if (!lat || !lng) {
+    // 좌표 없으면 주소로 검색
+    const url = `https://map.kakao.com/link/search/${encodeURIComponent(name)}`;
+    window.open(url, '_blank');
+    return;
+  }
+  // 카카오맵 URL 스킴 (앱 연동)
+  const scheme = `kakaomap://route?ep=${lat},${lng}&by=CAR`;
+  window.location.href = scheme;
+  // 폴백: 앱 없으면 웹 지도
+  setTimeout(() => {
+    window.open(`https://map.kakao.com/link/to/${encodeURIComponent(name)},${lat},${lng}`, '_blank');
+  }, 1500);
+}
+
+function openTmap(lat, lng, name) {
+  if (!lat || !lng) {
+    window.open(`https://www.google.com/maps/search/${encodeURIComponent(name)}`, '_blank');
+    return;
+  }
+  const scheme = `tmap://route?goalname=${encodeURIComponent(name)}&goalx=${lng}&goaly=${lat}`;
+  window.location.href = scheme;
+  setTimeout(() => {
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`, '_blank');
+  }, 1500);
+}
+
+// ═══ 납품 완료 처리 ═══════════════════════════════════
+async function markDone(idx) {
+  const stop = STOPS[idx];
+  if (stop.done) return;
+
+  const date = document.getElementById('dateInput').value;
+  stop.done = true;
+
+  try {
+    await sb.from('delivery_logs').insert({
+      session_date: date,
+      driver_name: DRIVER,
+      client_name: stop.clientName,
+      lat: CUR_LAT,
+      lng: CUR_LNG
+    });
+  } catch(e) { console.warn('완료 기록 저장 실패:', e.message); }
+
+  renderStops();
+  updateProgress();
+}
+
+// ═══ 렌더링 ══════════════════════════════════════════
+function renderStops() {
+  const list = document.getElementById('stopList');
+  if (STOPS.length === 0) {
+    list.innerHTML = '<div class="empty"><div class="icon">📦</div><div>납품 목록이 없습니다<br><small>날짜를 선택하고 [불러오기]를 누르세요</small></div></div>';
+    return;
+  }
+
+  let num = 0;
+  let html = '';
+  STOPS.forEach((stop, idx) => {
+    if (!stop.done) num++;
+    const displayNum = stop.done ? '✓' : num;
+    const isWH = stop.warehouseHere;
+    html += `<div class="stop-card ${stop.done?'done':''} ${isWH?'warehouse-card':''}">`;
+    if (stop.done) html += `<div class="done-badge">납품완료</div>`;
+    html += `<div class="stop-header">
+      <div class="stop-num">${displayNum}</div>
+      <div>
+        <div class="stop-name">${isWH?'🏭 ':''} ${esc(stop.clientName)}</div>
+        <div class="stop-addr">📍 ${esc(stop.address)}</div>
+      </div>
+    </div>`;
+    html += '<div class="stop-body">';
+    stop.items.forEach(it => {
+      html += `<div class="stop-item">• ${esc(it.name)} ${it.qty?esc(it.qty):''}${it.unit?esc(it.unit):''}</div>`;
+    });
+    html += '</div>';
+    if (!stop.done) {
+      html += `<div class="stop-actions">
+        <button class="btn btn-blue btn-sm" onclick="openKakaoNavi(${stop.lat||'null'},${stop.lng||'null'},'${esc(stop.clientName)}')">🗺️ 카카오</button>
+        <button class="btn btn-gray btn-sm" onclick="openTmap(${stop.lat||'null'},${stop.lng||'null'},'${esc(stop.clientName)}')">🗺️ T맵</button>
+        <button class="btn btn-green btn-sm" onclick="markDone(${idx})">✅ 납품완료</button>
+      </div>`;
+    }
+    html += '</div>';
+  });
+
+  list.innerHTML = html;
+  updateProgress();
+}
+
+function updateProgress() {
+  const total = STOPS.length;
+  const done = STOPS.filter(s => s.done).length;
+  document.getElementById('progressText').textContent = `${done}/${total} 완료`;
+}
+
+// ═══ GPS 추적 ═══════════════════════════════════════
+let GPS_ON = false;
+
+function toggleGps() {
+  if (GPS_ON) { stopGps(); }
+  else { startGps(); }
+}
+
+function startGps() {
+  if (!navigator.geolocation) {
+    showBanner('이 기기에서 GPS를 지원하지 않습니다', 'err'); return;
+  }
+  GPS_ON = true;
+  document.getElementById('gpsToggleLabel').textContent = '끄기';
+  document.getElementById('gpsDot').classList.add('on');
+  document.getElementById('gpsStatus').textContent = 'GPS 켜짐';
+
+  GPS_ID = navigator.geolocation.watchPosition(
+    pos => {
+      CUR_LAT = pos.coords.latitude;
+      CUR_LNG = pos.coords.longitude;
+      document.getElementById('gpsStatus').textContent = `GPS ${CUR_LAT.toFixed(4)}, ${CUR_LNG.toFixed(4)}`;
+    },
+    err => { document.getElementById('gpsStatus').textContent = 'GPS 오류: ' + err.message; },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+  );
+
+  // 30초마다 위치 Supabase 전송
+  GPS_SEND_TIMER = setInterval(sendLocationToSupabase, 30000);
+}
+
+function stopGps() {
+  GPS_ON = false;
+  if (GPS_ID !== null) { navigator.geolocation.clearWatch(GPS_ID); GPS_ID = null; }
+  if (GPS_SEND_TIMER) { clearInterval(GPS_SEND_TIMER); GPS_SEND_TIMER = null; }
+  document.getElementById('gpsToggleLabel').textContent = '켜기';
+  document.getElementById('gpsDot').classList.remove('on');
+  document.getElementById('gpsStatus').textContent = 'GPS 꺼짐';
+}
+
+async function sendLocationToSupabase() {
+  if (!CUR_LAT || !CUR_LNG || !DRIVER) return;
+  const date = document.getElementById('dateInput').value;
+  try {
+    await sb.from('driver_locations').upsert({
+      driver_name: DRIVER,
+      session_date: date,
+      lat: CUR_LAT,
+      lng: CUR_LNG,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'driver_name,session_date' });
+  } catch(e) { console.warn('위치 전송 실패:', e.message); }
+}
+
+// ═══ 배너 ════════════════════════════════════════════
+function showBanner(msg, type) {
+  const area = document.getElementById('bannerArea');
+  const cls = type === 'warn' ? 'banner-warn' : type === 'err' ? 'banner-err' : 'banner-ok';
+  area.innerHTML = `<div class="banner ${cls}">${msg}</div>`;
+}
+function clearBanner() { document.getElementById('bannerArea').innerHTML = ''; }
+
+// ═══ 설정 모달 ═══════════════════════════════════════
+function openSettings() {
+  document.getElementById('cfg_depot').value   = cfg('depot_addr', '');
+  document.getElementById('cfg_wh_name').value = cfg('wh_name', '');
+  document.getElementById('cfg_wh_addr').value = cfg('wh_addr', '');
+  document.getElementById('cfg_wh_close').value = cfg('wh_close', '11:20');
+  document.getElementById('cfg_kakao_key').value = cfg('kakao_key', '');
+  document.getElementById('cfg_drivers').value = cfg('drivers', '홍길동\n김드라이버');
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
+function saveSettings() {
+  cfgSet('depot_addr', document.getElementById('cfg_depot').value.trim());
+  cfgSet('wh_name',    document.getElementById('cfg_wh_name').value.trim());
+  cfgSet('wh_addr',    document.getElementById('cfg_wh_addr').value.trim());
+  cfgSet('wh_close',   document.getElementById('cfg_wh_close').value);
+  cfgSet('kakao_key',  document.getElementById('cfg_kakao_key').value.trim());
+  cfgSet('drivers',    document.getElementById('cfg_drivers').value.trim());
+  closeSettings();
+  showBanner('설정 저장됨', 'ok');
+}
+
+// ═══ 초기화 ══════════════════════════════════════════
+initLogin();
+</script>
+</body>
+</html>

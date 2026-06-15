@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>월성푸드 배송 시스템</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Malgun Gothic',sans-serif;background:#1a3a5c;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.logo{font-size:56px;margin-bottom:10px}
+h1{color:#fff;font-size:22px;margin-bottom:4px}
+p{color:#9fb3c8;font-size:13px;margin-bottom:30px}
+.menu{display:flex;flex-direction:column;gap:14px;width:100%;max-width:340px}
+a.card{display:flex;align-items:center;gap:14px;background:#fff;border-radius:14px;padding:18px 20px;text-decoration:none;box-shadow:0 4px 12px rgba(0,0,0,.2);transition:.15s}
+a.card:active{transform:scale(.98)}
+.card .icon{font-size:32px}
+.card .txt{flex:1}
+.card .title{font-size:17px;font-weight:bold;color:#1a3a5c}
+.card .desc{font-size:12px;color:#888;margin-top:2px}
+.card .arrow{font-size:20px;color:#ccc}
+.footer{color:#6b8299;font-size:11px;margin-top:30px;text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+  <div class="logo">🚚</div>
+  <h1>월성푸드 배송 시스템</h1>
+  <p>아래에서 사용할 화면을 선택하세요</p>
+
+  <div class="menu">
+    <a class="card" href="배송기사앱.html">
+      <span class="icon">📱</span>
+      <span class="txt">
+        <div class="title">기사앱</div>
+        <div class="desc">배송 경로 · 네비 · 납품완료 (핸드폰용)</div>
+      </span>
+      <span class="arrow">›</span>
+    </a>
+    <a class="card" href="배송현황판.html">
+      <span class="icon">🖥️</span>
+      <span class="txt">
+        <div class="title">현황판</div>
+        <div class="desc">기사 위치 추적 · 진행 현황 (사무실용)</div>
+      </span>
+      <span class="arrow">›</span>
+    </a>
+  </div>
+
+  <div class="footer">
+    처음 사용 시 각 화면의 ⚙️ 설정에서<br>카카오 API 키를 입력하세요
+  </div>
+</body>
+</html>

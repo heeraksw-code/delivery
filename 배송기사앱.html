@@ -344,6 +344,8 @@ async function loadOrders() {
         lat: a.lat || null,
         lng: a.lng || null,
         note: a.delivery_note || '',        // 배송 메모(뒷문·주차 등)
+        tw: a.delivery_time_window || '',   // 배송 시간대 (am/pm/'')
+        phone: a.phone || '',               // 전화번호
         items: clientMap[cn],
         done: donSet.has(cn),
         warehouseHere: false
@@ -424,6 +426,10 @@ async function optimizeRoute() {
   const depot = await resolveDepot(kakaoKey, withCoord);
   let optimized = nearestNeighborTSP(withCoord, depot);
   optimized = twoOpt(optimized, depot);
+
+  // 시간대 적용: 오전 거래처 먼저 → 무관 → 오후 거래처 마지막 (각 그룹 안에서는 최적 순서 유지)
+  const rank = s => (s.tw === 'am' ? 0 : s.tw === 'pm' ? 2 : 1);
+  optimized = optimized.slice().sort((a, b) => rank(a) - rank(b));  // 안정정렬
 
   // 좌표 없는 거래처는 맨 뒤로, 창고는 항상 마지막에 배치
   const reordered = [...optimized, ...noCoordList];
@@ -743,14 +749,24 @@ function renderStops() {
            <button onclick="moveStop(${idx},-1)" title="위로" style="border:none;background:#eef1f5;border-radius:5px;width:30px;height:22px;cursor:pointer;font-size:12px">▲</button>
            <button onclick="moveStop(${idx},1)" title="아래로" style="border:none;background:#eef1f5;border-radius:5px;width:30px;height:22px;cursor:pointer;font-size:12px">▼</button>
          </div>` : '';
+    // 오전/오후 시간대 태그 (눌러서 무관→오전→오후 순환)
+    const twInfo = { am: ['🌅오전','#e67e22'], pm: ['🌆오후','#8e44ad'] }[stop.tw];
+    const twTag = (!isWH)
+      ? (twInfo
+          ? `<span onclick="cycleTimeWindow(${idx})" style="background:${twInfo[1]};color:#fff;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:10px;cursor:pointer">${twInfo[0]}</span>`
+          : `<span onclick="cycleTimeWindow(${idx})" style="background:#eee;color:#999;font-size:11px;padding:2px 8px;border-radius:10px;cursor:pointer">⏰시간대</span>`)
+      : '';
     html += `<div class="stop-header">
       <div class="stop-num">${displayNum}</div>
       <div style="flex:1">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <div class="stop-name">${isWH?'🏭 ':''} ${esc(stop.clientName)}</div>
+          ${twTag}
           ${etaTag}
         </div>
-        <div class="stop-addr">📍 ${esc(stop.address)}</div>
+        <div class="stop-addr">📍 ${esc(stop.address)}
+          ${!isWH && !stop.done ? `<span onclick="fixLocation(${idx})" style="color:#3498db;font-size:11px;cursor:pointer;margin-left:6px">[위치수정]</span>` : ''}
+        </div>
       </div>
       ${reorder}
     </div>`;
@@ -768,9 +784,12 @@ function renderStops() {
     });
     html += '</div>';
     if (!stop.done) {
+      const callBtn = stop.phone
+        ? `<a class="btn btn-sm" href="tel:${esc(stop.phone.replace(/[^0-9+]/g,''))}" style="background:#16a085;color:#fff;text-decoration:none">📞 전화</a>` : '';
       html += `<div class="stop-actions">
         <button class="btn btn-blue btn-sm" onclick="openKakaoNavi(${stop.lat||'null'},${stop.lng||'null'},'${esc(stop.clientName)}')">🗺️ 카카오</button>
         <button class="btn btn-gray btn-sm" onclick="openTmap(${stop.lat||'null'},${stop.lng||'null'},'${esc(stop.clientName)}')">🗺️ T맵</button>
+        ${callBtn}
         <button class="btn btn-green btn-sm" onclick="markDone(${idx})">✅ 납품완료</button>
       </div>`;
     }
@@ -809,6 +828,38 @@ async function editNote(idx) {
     showBanner('배송 메모 저장됨', 'ok');
   } catch(e) {
     showBanner('메모 저장 실패 — Supabase에 delivery_note 칸을 먼저 추가하세요', 'warn');
+  }
+}
+
+// 배송 시간대 순환: 무관 → 오전 → 오후 → 무관
+async function cycleTimeWindow(idx) {
+  const stop = STOPS[idx];
+  const next = { '': 'am', 'am': 'pm', 'pm': '' }[stop.tw || ''];
+  stop.tw = next;
+  renderStops();
+  try {
+    const { error } = await sb.from('delivery_customers').update({ delivery_time_window: next }).eq('name', stop.dbName);
+    if (error) throw error;
+    const lbl = { am: '오전', pm: '오후', '': '시간무관' }[next];
+    showBanner(`${stop.clientName} → ${lbl}`, 'ok');
+  } catch(e) {
+    showBanner('시간대 저장 실패 — Supabase에 delivery_time_window 칸을 먼저 추가하세요', 'warn');
+  }
+}
+
+// 좌표 보정: 현재 GPS 위치를 이 거래처 좌표로 저장 (실제 문 앞에서 누르면 정확)
+async function fixLocation(idx) {
+  const stop = STOPS[idx];
+  if (!CUR_LAT || !CUR_LNG) { showBanner('GPS를 먼저 켜주세요 (현재 위치가 필요)', 'warn'); return; }
+  if (!confirm(`[${stop.clientName}]의 위치를 지금 내 GPS 위치로 저장할까요?\n(거래처 문 앞에서 누르면 정확합니다)`)) return;
+  stop.lat = CUR_LAT; stop.lng = CUR_LNG;
+  renderStops();
+  try {
+    const { error } = await sb.from('delivery_customers').update({ lat: CUR_LAT, lng: CUR_LNG }).eq('name', stop.dbName);
+    if (error) throw error;
+    showBanner(`${stop.clientName} 위치 저장됨`, 'ok');
+  } catch(e) {
+    showBanner('위치 저장 실패: ' + (e.message||e), 'warn');
   }
 }
 

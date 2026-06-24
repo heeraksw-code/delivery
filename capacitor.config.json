@@ -1,0 +1,9 @@
+{
+  "appId": "com.wolseong.delivery",
+  "appName": "월성푸드배송",
+  "webDir": "www",
+  "server": {
+    "url": "https://heeraksw-code.github.io/delivery/%EB%B0%B0%EC%86%A1%EA%B8%B0%EC%82%AC%EC%95%B1.html",
+    "androidScheme": "https"
+  }
+}

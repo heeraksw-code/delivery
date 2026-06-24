@@ -8,3 +8,8 @@ server.js
 .env
 .env.*
 *.bak
+
+# 앱 빌드 산출물 (CI에서 생성)
+node_modules/
+android/
+package-lock.json

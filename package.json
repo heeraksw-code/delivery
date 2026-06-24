@@ -1,0 +1,13 @@
+{
+  "name": "wolseong-delivery-app",
+  "version": "1.0.0",
+  "description": "월성푸드 배송 기사앱 (Capacitor 안드로이드 래퍼)",
+  "private": true,
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

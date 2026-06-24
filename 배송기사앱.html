@@ -940,6 +940,26 @@ function toggleMap() {
   panel.style.display = 'block';
   document.getElementById('mapToggleLabel').textContent = '지도 닫기';
   ensureDriverMap();
+  locateOnce();   // 지도 열면 현위치 한 번 잡아서 핀 표시 (GPS 추적 안 켜도)
+}
+
+// 현위치 한 번만 가져와 지도에 핀 — GPS 추적(watch)과 별개
+function locateOnce() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      CUR_LAT = pos.coords.latitude;
+      CUR_LNG = pos.coords.longitude;
+      if (DMAP) {
+        updateGpsDot();
+        // 거래처가 없을 때만 현위치로 중심 이동(경로 보기를 방해하지 않게)
+        const hasStops = STOPS.some(s => s.lat && s.lng && !s.done && tripMatch(s));
+        if (!hasStops) DMAP.setCenter(new kakao.maps.LatLng(CUR_LAT, CUR_LNG));
+      }
+    },
+    () => {},
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }
+  );
 }
 
 function ensureDriverMap() {
@@ -1017,15 +1037,19 @@ function renderDriverMap() {
   if (hasAny && !bounds.isEmpty()) DMAP.setBounds(bounds);
 }
 
-// 내 현재 위치(파란 점) — GPS 갱신 때마다 가볍게 이동
+// 내 현재 위치 핀(또렷한 라벨) — GPS 갱신 때마다 이동
 function updateGpsDot(boundsToExtend) {
   if (!DMAP || typeof kakao === 'undefined' || !CUR_LAT || !CUR_LNG) return;
   const gpos = new kakao.maps.LatLng(CUR_LAT, CUR_LNG);
+  const pinHtml = '<div style="display:flex;flex-direction:column;align-items:center">'
+    + '<div style="background:#2d8cff;color:#fff;font-size:11px;font-weight:bold;padding:2px 7px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4)">📍 현위치</div>'
+    + '<div style="width:14px;height:14px;border-radius:50%;background:#2d8cff;border:3px solid #fff;box-shadow:0 0 0 4px rgba(45,140,255,.3);margin-top:1px"></div>'
+    + '</div>';
   if (DGPS) { DGPS.setPosition(gpos); }
   else {
     DGPS = new kakao.maps.CustomOverlay({
-      position: gpos, yAnchor: 0.5, xAnchor: 0.5,
-      content: '<div style="width:16px;height:16px;border-radius:50%;background:#2d8cff;border:3px solid #fff;box-shadow:0 0 0 3px rgba(45,140,255,.35)"></div>'
+      position: gpos, yAnchor: 1, xAnchor: 0.5, zIndex: 10,
+      content: pinHtml
     });
     DGPS.setMap(DMAP);
   }

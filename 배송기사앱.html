@@ -133,6 +133,12 @@ label{font-size:12px;color:#666;display:block;margin-bottom:3px}
         <button class="btn btn-sm" style="background:#16a085;color:#fff" onclick="toggleMap()">🗺️ <span id="mapToggleLabel">지도 보기</span></button>
         <button class="btn btn-sm" style="background:#3b5b86;color:#fff" onclick="batchNavi()">🧭 묶음 내비</button>
       </div>
+      <!-- 차수(다회전) 필터 -->
+      <div class="row" style="gap:0;border:1px solid #dde;border-radius:8px;overflow:hidden">
+        <button id="trip-all" class="trip-btn" onclick="setTrip('all')" style="flex:1;border:none;padding:8px;background:#1a3a5c;color:#fff;font-size:12px;font-weight:bold;cursor:pointer">전체</button>
+        <button id="trip-am" class="trip-btn" onclick="setTrip('am')" style="flex:1;border:none;padding:8px;background:#fff;color:#555;font-size:12px;cursor:pointer">🌅 오전차</button>
+        <button id="trip-pm" class="trip-btn" onclick="setTrip('pm')" style="flex:1;border:none;padding:8px;background:#fff;color:#555;font-size:12px;cursor:pointer">🌆 오후차</button>
+      </div>
     </div>
 
     <!-- 경로 지도 (개요용) -->
@@ -325,14 +331,16 @@ async function loadOrders() {
       .select('*');
     const custList = allCusts || [];
 
-    // 4) 기존 완료 기록 조회 (이미 완료한 거래처)
+    // 4) 기존 처리 기록 조회 (완료/부재/반품/일부 + 사유)
     const { data: logs } = await sb
       .from('delivery_logs')
-      .select('client_name')
+      .select('*')
       .eq('session_date', date)
       .eq('driver_name', DRIVER);
 
-    const donSet = new Set((logs || []).map(l => l.client_name));
+    const resultMap = {};
+    (logs || []).forEach(l => { resultMap[l.client_name] = { result: l.result || 'done', reason: l.reason || '' }; });
+    const donSet = new Set(Object.keys(resultMap));
 
     // 5) STOPS 배열 구성
     STOPS = clientNames.map(cn => {
@@ -348,6 +356,8 @@ async function loadOrders() {
         phone: a.phone || '',               // 전화번호
         items: clientMap[cn],
         done: donSet.has(cn),
+        result: (resultMap[cn] && resultMap[cn].result) || '',
+        reason: (resultMap[cn] && resultMap[cn].reason) || '',
         warehouseHere: false
       };
     });
@@ -687,27 +697,41 @@ function batchNavi() {
   }
 }
 
-// ═══ 납품 완료 처리 ═══════════════════════════════════
-async function markDone(idx, auto) {
+// ═══ 처리(완료/부재/반품/일부) 기록 ═══════════════════
+const RESULT_LABEL = { done: '납품완료', absent: '부재중', return: '반품', partial: '일부만' };
+const RESULT_COLOR = { done: '#27ae60', absent: '#e67e22', return: '#e74c3c', partial: '#2980b9' };
+
+async function recordResult(idx, result, reason, auto) {
   const stop = STOPS[idx];
   if (stop.done) return;
-
   const date = document.getElementById('dateInput').value;
   stop.done = true;
-
+  stop.result = result;
+  stop.reason = reason || '';
   try {
     await sb.from('delivery_logs').insert({
-      session_date: date,
-      driver_name: DRIVER,
-      client_name: stop.clientName,
-      lat: CUR_LAT,
-      lng: CUR_LNG
+      session_date: date, driver_name: DRIVER, client_name: stop.clientName,
+      lat: CUR_LAT, lng: CUR_LNG, result: result, reason: reason || ''
     });
-  } catch(e) { console.warn('완료 기록 저장 실패:', e.message); }
-
+  } catch(e) { console.warn('기록 저장 실패:', e.message); }
   renderStops();
   updateProgress();
-  showBanner(`✅ ${stop.clientName} 납품완료${auto ? ' (자동 감지)' : ''}`, 'ok');
+  const ok = (result === 'done');
+  showBanner(`${ok ? '✅' : '⚠️'} ${stop.clientName} ${RESULT_LABEL[result] || result}${auto ? ' (자동)' : ''}`, ok ? 'ok' : 'warn');
+}
+
+// 납품완료 (버튼·자동도착에서 호출)
+function markDone(idx, auto) { recordResult(idx, 'done', '', auto); }
+
+// 문제 처리: 부재중 / 반품 / 일부만 + 사유
+function markProblem(idx) {
+  const stop = STOPS[idx];
+  const choice = prompt(`[${stop.clientName}] 처리 상태를 숫자로:\n  1) 부재중\n  2) 반품\n  3) 일부만 배송`, '');
+  if (!choice) return;
+  const result = { '1': 'absent', '2': 'return', '3': 'partial' }[choice.trim()];
+  if (!result) { showBanner('1, 2, 3 중에서 선택하세요', 'warn'); return; }
+  const reason = (prompt('사유 (선택 — 예: 문 잠김 / 거래처 요청 / 수량 부족)', '') || '').trim();
+  recordResult(idx, result, reason);
 }
 
 // 자동 납품완료 — 현재 위치가 미완료 거래처 반경 안에 들어오면 자동 처리
@@ -724,6 +748,28 @@ function checkAutoArrival() {
   });
 }
 
+// ═══ 차수(다회전) 필터 ════════════════════════════════
+let TRIP_FILTER = 'all';   // all | am | pm
+function setTrip(t) {
+  TRIP_FILTER = t;
+  ['all','am','pm'].forEach(k => {
+    const b = document.getElementById('trip-' + k);
+    if (!b) return;
+    const on = (k === t);
+    b.style.background = on ? '#1a3a5c' : '#fff';
+    b.style.color = on ? '#fff' : '#555';
+    b.style.fontWeight = on ? 'bold' : 'normal';
+  });
+  renderStops();
+  if (document.getElementById('mapPanel').style.display !== 'none' && DMAP) renderDriverMap();
+}
+// 이 정류장이 현재 차수 필터에 보이는가
+function tripMatch(s) {
+  if (TRIP_FILTER === 'all') return true;
+  if (s.warehouseHere) return TRIP_FILTER === 'pm';   // 창고는 오후차에만(보통 마지막)
+  return s.tw === TRIP_FILTER;                          // 오전차=am, 오후차=pm (무관은 전체에서만)
+}
+
 // ═══ 렌더링 ══════════════════════════════════════════
 function renderStops() {
   const list = document.getElementById('stopList');
@@ -734,12 +780,18 @@ function renderStops() {
 
   let num = 0;
   let html = '';
+  let shown = 0;
   STOPS.forEach((stop, idx) => {
+    if (!tripMatch(stop)) return;   // 차수 필터
+    shown++;
     if (!stop.done) num++;
     const displayNum = stop.done ? '✓' : num;
     const isWH = stop.warehouseHere;
     html += `<div class="stop-card ${stop.done?'done':''} ${isWH?'warehouse-card':''}">`;
-    if (stop.done) html += `<div class="done-badge">납품완료</div>`;
+    if (stop.done) {
+      const rs = stop.result || 'done';
+      html += `<div class="done-badge" style="background:${RESULT_COLOR[rs] || '#27ae60'}">${RESULT_LABEL[rs] || '납품완료'}${stop.reason ? ' · ' + esc(stop.reason) : ''}</div>`;
+    }
     const etaTag = (!stop.done && stop.eta)
       ? `<span style="background:#eaf2ff;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:10px;white-space:nowrap">🕐 ${fmtTime(stop.eta)} 도착예정</span>`
       : '';
@@ -790,12 +842,17 @@ function renderStops() {
         <button class="btn btn-blue btn-sm" onclick="openKakaoNavi(${stop.lat||'null'},${stop.lng||'null'},'${esc(stop.clientName)}')">🗺️ 카카오</button>
         <button class="btn btn-gray btn-sm" onclick="openTmap(${stop.lat||'null'},${stop.lng||'null'},'${esc(stop.clientName)}')">🗺️ T맵</button>
         ${callBtn}
+        <button class="btn btn-sm" style="background:#e67e22;color:#fff" onclick="markProblem(${idx})">⚠️ 문제</button>
         <button class="btn btn-green btn-sm" onclick="markDone(${idx})">✅ 납품완료</button>
       </div>`;
     }
     html += '</div>';
   });
 
+  if (shown === 0) {
+    const tl = { am: '오전차', pm: '오후차' }[TRIP_FILTER] || '';
+    html = `<div class="empty" style="padding:30px 20px"><div class="icon">🚚</div><div>${tl}에 해당하는 거래처가 없습니다<br><small>거래처 이름 옆 ⏰시간대를 눌러 오전/오후를 지정하세요</small></div></div>`;
+  }
   list.innerHTML = html;
   updateProgress();
   // 지도가 열려 있으면 핀·경로도 갱신
@@ -930,6 +987,7 @@ function renderDriverMap() {
 
   STOPS.forEach(s => {
     if (!s.lat || !s.lng) return;
+    if (!tripMatch(s)) return;   // 차수 필터 (지도도 목록과 동일하게)
     hasAny = true;
     const pos = new kakao.maps.LatLng(s.lat, s.lng);
     bounds.extend(pos);

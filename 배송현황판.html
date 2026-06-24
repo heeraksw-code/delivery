@@ -104,6 +104,7 @@ body{font-family:'Malgun Gothic',sans-serif;background:var(--gray);font-size:14p
   <div style="display:flex;gap:10px;align-items:center">
     <input type="date" id="dateInput" style="padding:6px 10px;border:1px solid rgba(255,255,255,.4);border-radius:6px;background:rgba(255,255,255,.15);color:#fff;font-size:13px">
     <button class="btn btn-green btn-sm" onclick="loadAll()">🔄 새로고침</button>
+    <button class="btn btn-sm" style="background:rgba(255,255,255,.15);color:#fff" onclick="openReport()">📋 리포트</button>
     <button class="btn btn-sm" style="background:rgba(255,255,255,.15);color:#fff" onclick="openSettings()">⚙️</button>
   </div>
 </div>
@@ -169,6 +170,20 @@ body{font-family:'Malgun Gothic',sans-serif;background:var(--gray);font-size:14p
     <label style="font-size:12px;color:#666;display:block;margin-bottom:3px">기사 목록 (줄바꿈으로 구분)</label>
     <textarea id="cfg_drivers" rows="4" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:12px" placeholder="홍길동&#10;김배달"></textarea>
     <button class="btn btn-blue" style="width:100%" onclick="saveSettings()">💾 저장</button>
+  </div>
+</div>
+
+<!-- 리포트·통계 모달 -->
+<div id="reportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:0;width:760px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #eee">
+      <h3 style="font-size:16px;font-weight:bold">📋 배송 리포트 · 통계</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-green btn-sm" onclick="copyReportCsv()">📑 표 복사(엑셀)</button>
+        <button onclick="closeReport()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999">✕</button>
+      </div>
+    </div>
+    <div id="reportBody" style="overflow-y:auto;padding:16px 20px"></div>
   </div>
 </div>
 
@@ -534,6 +549,98 @@ function updateTimestamp() {
 
 function getDriverList() {
   return (cfg('drivers','홍길동\n김드라이버')).split('\n').map(s=>s.trim()).filter(Boolean);
+}
+
+// ═══ 리포트 · 통계 ════════════════════════════════════
+const R_LABEL = { done:'납품완료', absent:'부재중', return:'반품', partial:'일부만' };
+const R_COLOR = { done:'#27ae60', absent:'#e67e22', return:'#e74c3c', partial:'#2980b9' };
+let REPORT_ROWS = [];   // CSV 복사용
+
+function openReport() { document.getElementById('reportModal').style.display = 'flex'; loadReport(); }
+function closeReport() { document.getElementById('reportModal').style.display = 'none'; }
+
+function ymdShift(ymd, days) {
+  const [y,m,d] = ymd.split('-').map(Number);
+  const t = new Date(y, m-1, d + days);
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+}
+
+async function loadReport() {
+  const date = document.getElementById('dateInput').value;
+  const body = document.getElementById('reportBody');
+  body.innerHTML = '<div style="text-align:center;color:#aaa;padding:30px">불러오는 중...</div>';
+  try {
+    const from = ymdShift(date, -6);   // 최근 7일 통계용
+    const { data: rows } = await sb.from('delivery_logs')
+      .select('*')
+      .gte('session_date', from).lte('session_date', date)
+      .order('completed_at', { ascending: true });
+    const all = rows || [];
+    const rOf = r => (r.result || 'done');
+
+    // ── 1) 선택일 일별 리포트 ──
+    const day = all.filter(r => r.session_date === date);
+    REPORT_ROWS = day.map(r => ({ 시각: formatTime(r.completed_at), 거래처: r.client_name, 기사: r.driver_name, 결과: R_LABEL[rOf(r)] || rOf(r), 사유: r.reason || '' }));
+    const cnt = { done:0, absent:0, return:0, partial:0 };
+    day.forEach(r => { cnt[rOf(r)] = (cnt[rOf(r)]||0)+1; });
+
+    let html = `<div style="font-size:14px;font-weight:bold;color:#1a3a5c;margin-bottom:8px">📅 ${date} 배송 결과 (총 ${day.length}건)</div>`;
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">`;
+    ['done','absent','return','partial'].forEach(k => {
+      if (cnt[k]) html += `<span style="background:${R_COLOR[k]};color:#fff;font-size:12px;font-weight:bold;padding:4px 10px;border-radius:12px">${R_LABEL[k]} ${cnt[k]}</span>`;
+    });
+    html += `</div>`;
+    if (day.length === 0) {
+      html += `<div style="color:#aaa;padding:14px;text-align:center">이 날 배송 기록이 없습니다.</div>`;
+    } else {
+      html += `<table style="font-size:12px"><thead><tr><th>시각</th><th>거래처</th><th>기사</th><th>결과</th><th>사유</th></tr></thead><tbody>`;
+      day.forEach(r => {
+        const k = rOf(r);
+        html += `<tr><td>${formatTime(r.completed_at)}</td><td>${esc(r.client_name)}</td><td>${esc(r.driver_name)}</td><td><span style="color:${R_COLOR[k]};font-weight:bold">${R_LABEL[k]||k}</span></td><td>${esc(r.reason||'')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    // ── 2) 최근 7일 통계 ──
+    html += `<div style="font-size:14px;font-weight:bold;color:#1a3a5c;margin:20px 0 8px">📊 최근 7일 통계 (${from} ~ ${date})</div>`;
+    // 기사별 건수
+    const byDriver = {};
+    all.forEach(r => { byDriver[r.driver_name] = (byDriver[r.driver_name]||0)+1; });
+    html += `<div style="font-size:12px;color:#666;margin-bottom:4px">기사별 배송 건수</div><table style="font-size:12px"><tbody>`;
+    Object.entries(byDriver).sort((a,b)=>b[1]-a[1]).forEach(([d,c]) => {
+      html += `<tr><td style="width:160px">🚚 ${esc(d)}</td><td>${c}건</td></tr>`;
+    });
+    if (!Object.keys(byDriver).length) html += `<tr><td colspan="2" style="color:#aaa">기록 없음</td></tr>`;
+    html += `</tbody></table>`;
+    // 일별 추세
+    const byDay = {};
+    all.forEach(r => { byDay[r.session_date] = (byDay[r.session_date]||0)+1; });
+    html += `<div style="font-size:12px;color:#666;margin:12px 0 4px">일별 배송 건수</div><div style="display:flex;gap:6px;align-items:flex-end;height:80px">`;
+    const maxv = Math.max(1, ...Object.values(byDay));
+    for (let i=6;i>=0;i--) {
+      const dd = ymdShift(date, -i);
+      const v = byDay[dd] || 0;
+      html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">
+        <div style="font-size:10px;color:#888">${v||''}</div>
+        <div style="width:70%;background:#3498db;border-radius:3px 3px 0 0;height:${Math.round(v/maxv*56)}px;min-height:${v?3:0}px"></div>
+        <div style="font-size:9px;color:#aaa;margin-top:2px">${dd.slice(5)}</div>
+      </div>`;
+    }
+    html += `</div>`;
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = `<div style="color:#e74c3c;padding:20px">리포트 로드 실패: ${esc(e.message||e)}</div>`;
+  }
+}
+
+function copyReportCsv() {
+  if (!REPORT_ROWS.length) { alert('복사할 데이터가 없습니다.'); return; }
+  const cols = ['시각','거래처','기사','결과','사유'];
+  const tsv = [cols.join('\t')].concat(REPORT_ROWS.map(r => cols.map(c => r[c]).join('\t'))).join('\n');
+  navigator.clipboard.writeText(tsv).then(
+    () => alert('표가 복사됐어요. 엑셀에 붙여넣기(Ctrl+V) 하세요.'),
+    () => alert('복사 실패 — 브라우저 권한을 확인하세요.')
+  );
 }
 
 // ═══ 설정 ════════════════════════════════════════════

@@ -4,6 +4,7 @@
   "description": "월성푸드 배송 기사앱 (Capacitor 안드로이드 래퍼)",
   "private": true,
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor/android": "^6.1.2",
     "@capacitor/core": "^6.1.2"
   },

@@ -1065,6 +1065,22 @@ function updateGpsDot(boundsToExtend) {
 // ═══ GPS 추적 ═══════════════════════════════════════
 let GPS_ON = false;
 let CUR_SPEED = null;   // 현재 속도(m/s) — 자동완료 오작동 방지용
+let BG_WATCHER = null;  // 안드로이드 앱 백그라운드 위치 watcher id
+
+// 안드로이드 앱(Capacitor) 안에서 실행 중인지 + 백그라운드 위치 플러그인
+function bgPlugin() {
+  try { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundGeolocation; }
+  catch(e) { return null; }
+}
+
+// 위치 한 건 처리 (웹·앱 공통)
+function onLocation(lat, lng, speed, suffix) {
+  CUR_LAT = lat; CUR_LNG = lng; CUR_SPEED = (speed == null ? null : speed);
+  document.getElementById('gpsStatus').textContent = `GPS ${lat.toFixed(4)}, ${lng.toFixed(4)}${suffix || ''}`;
+  updateGpsDot();        // 지도 위 내 위치 핀 이동
+  checkAutoArrival();    // 거래처 도착하면 자동 납품완료
+  sendLocationToSupabase();  // 현황판으로 위치 전송
+}
 
 function toggleGps() {
   if (GPS_ON) { stopGps(); }
@@ -1072,34 +1088,53 @@ function toggleGps() {
 }
 
 function startGps() {
-  if (!navigator.geolocation) {
-    showBanner('이 기기에서 GPS를 지원하지 않습니다', 'err'); return;
-  }
   GPS_ON = true;
   document.getElementById('gpsToggleLabel').textContent = '끄기';
   document.getElementById('gpsDot').classList.add('on');
   document.getElementById('gpsStatus').textContent = 'GPS 켜짐';
   requestWakeLock();   // 추적 중엔 화면 안 꺼지게
 
-  GPS_ID = navigator.geolocation.watchPosition(
-    pos => {
-      CUR_LAT = pos.coords.latitude;
-      CUR_LNG = pos.coords.longitude;
-      CUR_SPEED = pos.coords.speed;   // m/s (없으면 null)
-      document.getElementById('gpsStatus').textContent = `GPS ${CUR_LAT.toFixed(4)}, ${CUR_LNG.toFixed(4)}`;
-      updateGpsDot();        // 지도 위 내 위치 점 이동
-      checkAutoArrival();    // 거래처 도착하면 자동 납품완료
-    },
-    err => { document.getElementById('gpsStatus').textContent = 'GPS 오류: ' + err.message; },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
-  );
+  const BG = bgPlugin();
+  if (BG) {
+    // 📱 안드로이드 앱 — 백그라운드 추적(화면 꺼져도/주머니에 넣어도)
+    document.getElementById('gpsStatus').textContent = 'GPS 켜짐 (백그라운드 추적)';
+    BG.addWatcher({
+      backgroundMessage: '배송 위치를 기록 중입니다',
+      backgroundTitle: '월성푸드 배송 — 위치 추적 중',
+      requestPermissions: true,
+      stale: false,
+      distanceFilter: 15
+    }, (location, error) => {
+      if (error) {
+        document.getElementById('gpsStatus').textContent = 'GPS 권한 필요: ' + (error.code || error.message || '');
+        if (error.code === 'NOT_AUTHORIZED') {
+          if (confirm('위치를 "항상 허용"으로 켜야 배송 추적이 됩니다. 설정 화면을 열까요?')) {
+            BG.openSettings();
+          }
+        }
+        return;
+      }
+      if (location) onLocation(location.latitude, location.longitude, location.speed, ' (백그라운드)');
+    }).then(id => { BG_WATCHER = id; }).catch(()=>{});
+  } else if (navigator.geolocation) {
+    // 🌐 웹(브라우저) — 화면 열어둔 동안만 추적
+    GPS_ID = navigator.geolocation.watchPosition(
+      pos => onLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed, ''),
+      err => { document.getElementById('gpsStatus').textContent = 'GPS 오류: ' + err.message; },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    );
+  } else {
+    showBanner('이 기기에서 GPS를 지원하지 않습니다', 'err');
+  }
 
-  // 30초마다 위치 Supabase 전송
+  // 30초마다 위치 Supabase 전송 (멈춰있을 때도 갱신)
   GPS_SEND_TIMER = setInterval(sendLocationToSupabase, 30000);
 }
 
 function stopGps() {
   GPS_ON = false;
+  const BG = bgPlugin();
+  if (BG && BG_WATCHER) { try { BG.removeWatcher({ id: BG_WATCHER }); } catch(e){} BG_WATCHER = null; }
   if (GPS_ID !== null) { navigator.geolocation.clearWatch(GPS_ID); GPS_ID = null; }
   if (GPS_SEND_TIMER) { clearInterval(GPS_SEND_TIMER); GPS_SEND_TIMER = null; }
   document.getElementById('gpsToggleLabel').textContent = '켜기';

@@ -39,6 +39,13 @@ jobs:
       - name: 동기화
         run: npx cap sync android
 
+      - name: 백그라운드 위치 권한 추가 (AndroidManifest)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <application#' "$M"
+          echo "===== AndroidManifest.xml ====="
+          cat "$M"
+
       - name: 디버그 APK 빌드
         run: |
           cd android

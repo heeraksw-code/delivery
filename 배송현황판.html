@@ -200,7 +200,9 @@ let MARKERS = {};
 let REALTIME_CH = null;
 
 // ═══ 설정 ══════════════════════════════════════════
-function cfg(k,d){ try{return localStorage.getItem('dashboard_'+k)||d}catch(e){return d} }
+// 카카오 JS키 내장(도메인 제한 보호) — 설정 안 해도 지도 바로 뜸
+const EMBEDDED_KEYS = { js_key: '7b3c60bf69c00e12f42af52360a23955' };
+function cfg(k,d){ try{return localStorage.getItem('dashboard_'+k)||EMBEDDED_KEYS[k]||d}catch(e){return EMBEDDED_KEYS[k]||d} }
 function cfgSet(k,v){ try{localStorage.setItem('dashboard_'+k,v)}catch(e){} }
 
 // ═══ 초기화 ═════════════════════════════════════════

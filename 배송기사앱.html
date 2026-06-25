@@ -209,7 +209,13 @@ let GPS_SEND_TIMER = null;
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ═══ 설정 로드 ════════════════════════════════════
-function cfg(key, def) { try { return localStorage.getItem('dlv_' + key) || def; } catch(e) { return def; } }
+// 카카오 키 기본값(앱에 내장) — 기기마다 설정에 안 넣어도 지도·길찾기 바로 작동.
+//   JS키: 카카오맵 JS SDK는 원래 키가 페이지에 노출되는 구조 + 도메인(github.io) 제한으로 보호됨.
+//   REST키: 카카오맵 사용설정 ON + 쿼터 제한으로 보호. (설정에 직접 넣으면 그 값이 우선)
+const EMBEDDED_KEYS = {
+  kakao_js_key: '7b3c60bf69c00e12f42af52360a23955'   // JS키만 내장(도메인 제한 보호). REST키는 공개노출 위험이라 제외.
+};
+function cfg(key, def) { try { return localStorage.getItem('dlv_' + key) || EMBEDDED_KEYS[key] || def; } catch(e) { return EMBEDDED_KEYS[key] || def; } }
 function cfgSet(key, val) { try { localStorage.setItem('dlv_' + key, val); } catch(e) {} }
 
 // ═══ 로그인 ═══════════════════════════════════════
